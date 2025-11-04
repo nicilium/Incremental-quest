@@ -194,21 +194,52 @@ class PrestigeActivity : Activity() {
             0, 1f
         ))
 
-        // D10-Upgrade
-        val d10Card = createD10Card()
-        upgradeContainer.addView(d10Card)
+        // D6-Upgrade (always shown, unless already active)
+        if (!GameState.d6Active) {
+            val d6Card = createD6Card()
+            upgradeContainer.addView(d6Card)
+        }
+
+        // D8-Upgrade (nur wenn D6 aktiv)
+        if (GameState.d6Active && !GameState.d8Active) {
+            val d8Card = createD8Card()
+            upgradeContainer.addView(d8Card)
+        }
+
+        // D10-Upgrade (nur wenn D8 aktiv)
+        if (GameState.d8Active && !GameState.d10Active) {
+            val d10Card = createD10Card()
+            upgradeContainer.addView(d10Card)
+        }
 
         // D12-Upgrade (nur wenn D10 aktiv)
-        if (GameState.d10Active) {
+        if (GameState.d10Active && !GameState.d12Active) {
             val d12Card = createD12Card()
             upgradeContainer.addView(d12Card)
         }
 
         // D20-Upgrade (nur wenn D12 aktiv)
-        if (GameState.d12Active) {
+        if (GameState.d12Active && !GameState.d20Active) {
             val d20Card = createD20Card()
             upgradeContainer.addView(d20Card)
         }
+
+        // Show current die info if all are purchased
+        val currentDieInfo = TextView(this)
+        val currentDie = when {
+            GameState.d20Active -> "D20"
+            GameState.d12Active -> "D12"
+            GameState.d10Active -> "D10"
+            GameState.d8Active -> "D8"
+            GameState.d6Active -> "D6"
+            else -> "D4"
+        }
+        currentDieInfo.text = "🎲 Current Die: $currentDie"
+        currentDieInfo.textSize = 18f
+        currentDieInfo.setTextColor(Color.rgb(255, 215, 0))
+        currentDieInfo.gravity = Gravity.CENTER
+        currentDieInfo.setPadding(0, 20, 0, 10)
+        upgradeContainer.addView(currentDieInfo)
 
         // Autoklicker-Geschwindigkeit Upgrade (nur wenn Autoklicker aktiv)
         if (GameState.autoClickerActive) {
@@ -272,7 +303,7 @@ class PrestigeActivity : Activity() {
         } else {
             // Buy button
             val buyButton = Button(this)
-            buyButton.text = "Buy (10)"
+            buyButton.text = "Buy (25 Divine Essence)"
             buyButton.textSize = 16f
 
             if (GameState.canAffordD10()) {
@@ -331,7 +362,7 @@ class PrestigeActivity : Activity() {
         } else {
             // Buy button
             val buyButton = Button(this)
-            buyButton.text = "Buy (1,280)"
+            buyButton.text = "Buy (125 Divine Essence)"
             buyButton.textSize = 16f
 
             if (GameState.canAffordD12()) {
@@ -390,7 +421,7 @@ class PrestigeActivity : Activity() {
         } else {
             // Buy button
             val buyButton = Button(this)
-            buyButton.text = "Buy (163,840)"
+            buyButton.text = "Buy (625 Divine Essence)"
             buyButton.textSize = 16f
 
             if (GameState.canAffordD20()) {
@@ -401,6 +432,124 @@ class PrestigeActivity : Activity() {
 
             buyButton.setOnClickListener {
                 if (GameState.buyD20()) {
+                    showUpgradeView()  // Refresh
+                }
+            }
+            card.addView(buyButton)
+        }
+
+        return card
+    }
+
+    private fun createD6Card(): LinearLayout {
+        val card = LinearLayout(this)
+        card.orientation = LinearLayout.VERTICAL
+        card.setBackgroundColor(Color.rgb(30, 30, 60))
+        card.setPadding(15, 15, 15, 15)
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        params.setMargins(0, 10, 0, 10)
+        card.layoutParams = params
+
+        // Title
+        val titleText = TextView(this)
+        titleText.text = "🎲 D6 Die"
+        titleText.textSize = 22f
+        titleText.setTextColor(Color.rgb(100, 200, 255))
+        card.addView(titleText)
+
+        // Description
+        val descText = TextView(this)
+        descText.text = "Unlocks 2 new colors (Magenta, Cyan)"
+        descText.textSize = 16f
+        descText.setTextColor(Color.LTGRAY)
+        descText.setPadding(0, 5, 0, 10)
+        card.addView(descText)
+
+        if (GameState.d6Active) {
+            // Already purchased
+            val activeText = TextView(this)
+            activeText.text = "✅ UNLOCKED"
+            activeText.textSize = 18f
+            activeText.setTextColor(Color.rgb(100, 255, 100))
+            activeText.gravity = Gravity.CENTER
+            activeText.setPadding(0, 10, 0, 10)
+            card.addView(activeText)
+        } else {
+            // Buy button
+            val buyButton = Button(this)
+            buyButton.text = "Buy (1 Divine Essence)"
+            buyButton.textSize = 16f
+
+            if (GameState.canAffordD6()) {
+                buyButton.setBackgroundColor(Color.rgb(50, 150, 50))
+            } else {
+                buyButton.setBackgroundColor(Color.rgb(100, 100, 100))
+            }
+
+            buyButton.setOnClickListener {
+                if (GameState.buyD6()) {
+                    showUpgradeView()  // Refresh
+                }
+            }
+            card.addView(buyButton)
+        }
+
+        return card
+    }
+
+    private fun createD8Card(): LinearLayout {
+        val card = LinearLayout(this)
+        card.orientation = LinearLayout.VERTICAL
+        card.setBackgroundColor(Color.rgb(30, 30, 60))
+        card.setPadding(15, 15, 15, 15)
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        params.setMargins(0, 10, 0, 10)
+        card.layoutParams = params
+
+        // Title
+        val titleText = TextView(this)
+        titleText.text = "🎲 D8 Die"
+        titleText.textSize = 22f
+        titleText.setTextColor(Color.rgb(255, 150, 100))
+        card.addView(titleText)
+
+        // Description
+        val descText = TextView(this)
+        descText.text = "Unlocks 2 new colors (Orange, Pink)"
+        descText.textSize = 16f
+        descText.setTextColor(Color.LTGRAY)
+        descText.setPadding(0, 5, 0, 10)
+        card.addView(descText)
+
+        if (GameState.d8Active) {
+            // Already purchased
+            val activeText = TextView(this)
+            activeText.text = "✅ UNLOCKED"
+            activeText.textSize = 18f
+            activeText.setTextColor(Color.rgb(100, 255, 100))
+            activeText.gravity = Gravity.CENTER
+            activeText.setPadding(0, 10, 0, 10)
+            card.addView(activeText)
+        } else {
+            // Buy button
+            val buyButton = Button(this)
+            buyButton.text = "Buy (5 Divine Essence)"
+            buyButton.textSize = 16f
+
+            if (GameState.canAffordD8()) {
+                buyButton.setBackgroundColor(Color.rgb(50, 150, 50))
+            } else {
+                buyButton.setBackgroundColor(Color.rgb(100, 100, 100))
+            }
+
+            buyButton.setOnClickListener {
+                if (GameState.buyD8()) {
                     showUpgradeView()  // Refresh
                 }
             }

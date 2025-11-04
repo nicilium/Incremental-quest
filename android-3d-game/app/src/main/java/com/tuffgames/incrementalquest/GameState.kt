@@ -43,6 +43,16 @@ object GameState {
     var autoClickerSpeedLevel = 0
         private set
 
+    // Dice progression: D4 (start) -> D6 -> D8 -> D10 -> D12 -> D20
+    var d4Active = true  // Start with D4
+        private set
+
+    var d6Active = false
+        private set
+
+    var d8Active = false
+        private set
+
     var d10Active = false
         private set
 
@@ -269,7 +279,7 @@ object GameState {
         return sum / allColors.size.toDouble()
     }
 
-    // Returns all available colors (D6, D10, D12 or D20)
+    // Returns all available colors (D4, D6, D8, D10, D12 or D20)
     fun getAvailableColors(): List<CubeColor> {
         return when {
             d20Active -> listOf(
@@ -291,9 +301,17 @@ object GameState {
                 CubeColor.YELLOW, CubeColor.MAGENTA, CubeColor.CYAN,
                 CubeColor.ORANGE, CubeColor.PINK, CubeColor.PURPLE, CubeColor.TURQUOISE
             )
-            else -> listOf(
+            d8Active -> listOf(
+                CubeColor.RED, CubeColor.GREEN, CubeColor.BLUE,
+                CubeColor.YELLOW, CubeColor.MAGENTA, CubeColor.CYAN,
+                CubeColor.ORANGE, CubeColor.PINK
+            )
+            d6Active -> listOf(
                 CubeColor.RED, CubeColor.GREEN, CubeColor.BLUE,
                 CubeColor.YELLOW, CubeColor.MAGENTA, CubeColor.CYAN
+            )
+            else -> listOf(  // D4 (default start)
+                CubeColor.RED, CubeColor.GREEN, CubeColor.BLUE, CubeColor.YELLOW
             )
         }
     }
@@ -449,43 +467,71 @@ object GameState {
         return true
     }
 
-    // D10 Upgrade
+    // D6 Upgrade - Cost: 1 Divine Essence
+    fun canAffordD6(): Boolean {
+        return !d6Active && divineEssence >= 1
+    }
+
+    fun buyD6(): Boolean {
+        if (!canAffordD6()) return false
+
+        divineEssence -= 1
+        d6Active = true
+
+        return true
+    }
+
+    // D8 Upgrade - Cost: 5 Divine Essence (5x increase)
+    fun canAffordD8(): Boolean {
+        return d6Active && !d8Active && divineEssence >= 5
+    }
+
+    fun buyD8(): Boolean {
+        if (!canAffordD8()) return false
+
+        divineEssence -= 5
+        d8Active = true
+
+        return true
+    }
+
+    // D10 Upgrade - Cost: 25 Divine Essence (5x increase)
     fun canAffordD10(): Boolean {
-        return !d10Active && divineEssence >= 10
+        return d8Active && !d10Active && divineEssence >= 25
     }
 
     fun buyD10(): Boolean {
         if (!canAffordD10()) return false
 
-        divineEssence -= 10
+        divineEssence -= 25
         d10Active = true
 
         return true
     }
 
-    // D12 Upgrade - Cost: 10 * 128 = 1,280
+    // D12 Upgrade - Cost: 125 Divine Essence (5x increase)
     fun canAffordD12(): Boolean {
-        return d10Active && !d12Active && divineEssence >= 1280
+        return d10Active && !d12Active && divineEssence >= 125
     }
 
     fun buyD12(): Boolean {
         if (!canAffordD12()) return false
 
-        divineEssence -= 1280
+        divineEssence -= 125
         d12Active = true
 
         return true
     }
 
-    // D20 Upgrade - Cost: 1,280 * 128 = 163,840
+    // D20 Upgrade - Cost: 625 Divine Essence (5x increase)
     fun canAffordD20(): Boolean {
-        return d12Active && !d20Active && divineEssence >= 163840
+        return d12Active && !d20Active && divineEssence >= 625
     }
 
     fun buyD20(): Boolean {
         if (!canAffordD20()) return false
 
-        divineEssence -= 163840
+        divineEssence -= 625
         d20Active = true
 
         return true
@@ -595,6 +641,9 @@ object GameState {
         }
         autoClickerActive = false
         autoClickerSpeedLevel = 0
+        d4Active = true  // Reset to D4 start
+        d6Active = false
+        d8Active = false
         d10Active = false
         d12Active = false
         d20Active = false
@@ -624,6 +673,9 @@ object GameState {
         }
         editor.putBoolean("autoClickerActive", autoClickerActive)
         editor.putInt("autoClickerSpeedLevel", autoClickerSpeedLevel)
+        editor.putBoolean("d4Active", d4Active)
+        editor.putBoolean("d6Active", d6Active)
+        editor.putBoolean("d8Active", d8Active)
         editor.putBoolean("d10Active", d10Active)
         editor.putBoolean("d12Active", d12Active)
         editor.putBoolean("d20Active", d20Active)
@@ -715,9 +767,27 @@ object GameState {
             prefs.getFloat("autoClickerSpeedLevel", 0f).toInt()
         }
 
+        d4Active = prefs.getBoolean("d4Active", true)  // Default true for new saves
+        d6Active = prefs.getBoolean("d6Active", false)
+        d8Active = prefs.getBoolean("d8Active", false)
         d10Active = prefs.getBoolean("d10Active", false)
         d12Active = prefs.getBoolean("d12Active", false)
         d20Active = prefs.getBoolean("d20Active", false)
+
+        // Migration: If old save has no D4/D6/D8 flags but has D10+, activate all previous dice
+        if (!prefs.contains("d4Active") && !prefs.contains("d6Active") && !prefs.contains("d8Active")) {
+            // Old save detected - migrate to new system
+            if (d10Active || d12Active || d20Active) {
+                // They had D10+, so give them all previous dice
+                d4Active = true
+                d6Active = true
+                d8Active = true
+            } else {
+                // Very old save, probably just had D6 (cube)
+                d4Active = false  // They started with D6
+                d6Active = true   // Default to D6 for old saves
+            }
+        }
 
         // Time tracking
         lastActiveTime = prefs.getLong("lastActiveTime", 0L)
