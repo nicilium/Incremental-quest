@@ -1,0 +1,325 @@
+package com.tuffgames.incrementalquest
+
+import android.app.Activity
+import android.graphics.Color
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
+import android.view.View
+import android.view.Window
+import android.view.WindowManager
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+
+class UpgradeActivity : Activity() {
+
+    private lateinit var scoreText: TextView
+    private lateinit var upgradeContainer: LinearLayout
+
+    private val updateHandler = Handler(Looper.getMainLooper())
+    private val updateRunnable = object : Runnable {
+        override fun run() {
+            // Offline-Klicks verarbeiten
+            GameState.processOfflineClicks()
+            updateScore()
+            updateButtonStates()  // Nur Button-Farben aktualisieren, nicht neu erstellen
+
+            // Nächstes Update in 100ms
+            updateHandler.postDelayed(this, 100)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Vollbild-Modus
+        requestWindowFeature(Window.FEATURE_NO_TITLE)
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN
+        )
+
+        // Haupt-Layout
+        val mainLayout = LinearLayout(this)
+        mainLayout.orientation = LinearLayout.VERTICAL
+        mainLayout.setBackgroundColor(Color.rgb(15, 15, 45))
+        mainLayout.setPadding(20, 20, 20, 20)
+
+        // Title
+        val title = TextView(this)
+        title.text = "UPGRADES"
+        title.textSize = 32f
+        title.setTextColor(Color.WHITE)
+        title.gravity = Gravity.CENTER
+        mainLayout.addView(title)
+
+        // Score display
+        scoreText = TextView(this)
+        scoreText.textSize = 24f
+        scoreText.setTextColor(Color.YELLOW)
+        scoreText.gravity = Gravity.CENTER
+        scoreText.setPadding(0, 20, 0, 20)
+        updateScore()
+        mainLayout.addView(scoreText)
+
+        // ScrollView für Upgrades
+        val scrollView = ScrollView(this)
+        upgradeContainer = LinearLayout(this)
+        upgradeContainer.orientation = LinearLayout.VERTICAL
+        scrollView.addView(upgradeContainer)
+        mainLayout.addView(scrollView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            0, 1f
+        ))
+
+        // Back button
+        val backButton = Button(this)
+        backButton.text = "← Back"
+        backButton.setOnClickListener { finish() }
+        mainLayout.addView(backButton)
+
+        setContentView(mainLayout)
+
+        createUpgradeButtons()
+    }
+
+    private fun createUpgradeButtons() {
+        upgradeContainer.removeAllViews()
+
+        // Autoklicker-Card hinzufügen
+        val autoClickerCard = createAutoClickerCard()
+        upgradeContainer.addView(autoClickerCard)
+
+        val colors = mutableListOf(
+            CubeColor.RED to "🔴 Red",
+            CubeColor.GREEN to "🟢 Green",
+            CubeColor.BLUE to "🔵 Blue",
+            CubeColor.YELLOW to "🟡 Yellow",
+            CubeColor.MAGENTA to "🟣 Magenta",
+            CubeColor.CYAN to "🩵 Cyan"
+        )
+
+        // D10 colors
+        if (GameState.d10Active) {
+            colors.add(CubeColor.ORANGE to "🟠 Orange")
+            colors.add(CubeColor.PINK to "🩷 Pink")
+            colors.add(CubeColor.PURPLE to "🟪 Purple")
+            colors.add(CubeColor.TURQUOISE to "🟦 Turquoise")
+        }
+
+        // D12 colors
+        if (GameState.d12Active) {
+            colors.add(CubeColor.LIME to "🟩 Lime")
+            colors.add(CubeColor.BROWN to "🟫 Brown")
+        }
+
+        // D20 colors
+        if (GameState.d20Active) {
+            colors.add(CubeColor.GOLD to "🟨 Gold")
+            colors.add(CubeColor.SILVER to "⬜ Silver")
+            colors.add(CubeColor.BRONZE to "🟧 Bronze")
+            colors.add(CubeColor.NAVY to "🔷 Navy")
+            colors.add(CubeColor.MAROON to "🔶 Maroon")
+            colors.add(CubeColor.OLIVE to "🫒 Olive")
+            colors.add(CubeColor.TEAL to "🔹 Teal")
+            colors.add(CubeColor.CORAL to "🪸 Coral")
+        }
+
+        colors.forEach { (color, name) ->
+            val upgradeCard = createUpgradeCard(color, name)
+            upgradeContainer.addView(upgradeCard)
+        }
+    }
+
+    private fun createAutoClickerCard(): LinearLayout {
+        val card = LinearLayout(this)
+        card.orientation = LinearLayout.VERTICAL
+        card.setBackgroundColor(Color.rgb(30, 30, 60))
+        card.setPadding(15, 15, 15, 15)
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        params.setMargins(0, 10, 0, 10)
+        card.layoutParams = params
+
+        // Title
+        val titleText = TextView(this)
+        titleText.text = "⏱️ Auto Clicker"
+        titleText.textSize = 22f
+        titleText.setTextColor(Color.rgb(100, 200, 255))
+        card.addView(titleText)
+
+        // Description
+        val descText = TextView(this)
+        descText.text = "Clicks the die automatically"
+        descText.textSize = 16f
+        descText.setTextColor(Color.LTGRAY)
+        descText.setPadding(0, 5, 0, 10)
+        card.addView(descText)
+
+        if (GameState.autoClickerActive) {
+            // Already bought
+            val activeText = TextView(this)
+            activeText.text = "✅ ACTIVE"
+            activeText.textSize = 20f
+            activeText.setTextColor(Color.rgb(100, 255, 100))
+            activeText.gravity = Gravity.CENTER
+            activeText.setPadding(0, 10, 0, 10)
+            card.addView(activeText)
+        } else {
+            // Buy button
+            val cost = GameState.getAutoClickerCost()
+            val buyButton = Button(this)
+            buyButton.tag = "AUTOKLICKER"  // Tag for updates
+            buyButton.text = "Buy ($cost)"
+            buyButton.textSize = 16f
+
+            if (GameState.canAffordAutoClicker()) {
+                buyButton.setBackgroundColor(Color.rgb(50, 150, 50))
+            } else {
+                buyButton.setBackgroundColor(Color.rgb(100, 100, 100))
+            }
+
+            buyButton.setOnClickListener {
+                if (GameState.buyAutoClicker()) {
+                    updateScore()
+                    createUpgradeButtons()  // Refresh
+                }
+            }
+            card.addView(buyButton)
+        }
+
+        return card
+    }
+
+    private fun createUpgradeCard(color: CubeColor, name: String): View {
+        val card = LinearLayout(this)
+        card.orientation = LinearLayout.VERTICAL
+        card.setBackgroundColor(Color.rgb(30, 30, 60))
+        card.setPadding(15, 15, 15, 15)
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        params.setMargins(0, 10, 0, 10)
+        card.layoutParams = params
+
+        // Title
+        val titleText = TextView(this)
+        titleText.text = "$name"
+        titleText.textSize = 20f
+        titleText.setTextColor(Color.WHITE)
+        card.addView(titleText)
+
+        // Info
+        val infoText = TextView(this)
+        val currentPoints = GameState.getCurrentPoints(color)
+        val level = GameState.getUpgradeLevel(color)
+        infoText.text = "Value: $currentPoints | Level: $level"
+        infoText.textSize = 16f
+        infoText.setTextColor(Color.LTGRAY)
+        card.addView(infoText)
+
+        // Cost and upgrade button
+        val buttonLayout = LinearLayout(this)
+        buttonLayout.orientation = LinearLayout.HORIZONTAL
+        buttonLayout.gravity = Gravity.CENTER_VERTICAL
+
+        val cost = GameState.getUpgradeCost(color)
+        val upgradeButton = Button(this)
+        upgradeButton.tag = color  // Tag for updates
+        upgradeButton.text = "Upgrade (${String.format("%.2f", cost)})"
+        upgradeButton.textSize = 16f
+
+        if (GameState.canAffordUpgrade(color)) {
+            upgradeButton.setBackgroundColor(Color.rgb(50, 150, 50))
+        } else {
+            upgradeButton.setBackgroundColor(Color.rgb(100, 100, 100))
+        }
+
+        upgradeButton.setOnClickListener {
+            if (GameState.buyUpgrade(color)) {
+                updateScore()
+                createUpgradeButtons() // Refresh alle Buttons
+            }
+        }
+
+        buttonLayout.addView(upgradeButton)
+        card.addView(buttonLayout)
+
+        return card
+    }
+
+    private fun updateScore() {
+        scoreText.text = "Available: ${String.format("%.2f", GameState.totalScore)}"
+    }
+
+    private fun updateButtonStates() {
+        // Loop through all cards and update button colors
+        for (i in 0 until upgradeContainer.childCount) {
+            val card = upgradeContainer.getChildAt(i) as? LinearLayout ?: continue
+
+            // First card is auto clicker (if not bought yet)
+            if (i == 0 && !GameState.autoClickerActive) {
+                val button = card.getChildAt(card.childCount - 1) as? Button
+                if (button?.tag == "AUTOKLICKER") {
+                    // Update auto clicker button
+                    if (GameState.canAffordAutoClicker()) {
+                        button.setBackgroundColor(Color.rgb(50, 150, 50))
+                    } else {
+                        button.setBackgroundColor(Color.rgb(100, 100, 100))
+                    }
+                }
+                continue
+            }
+
+            // Find button in card (last child is buttonLayout)
+            val buttonLayout = card.getChildAt(card.childCount - 1) as? LinearLayout ?: continue
+            val button = buttonLayout.getChildAt(0) as? Button ?: continue
+
+            // Also find info text (second child) to update point values
+            if (card.childCount >= 2) {
+                val infoText = card.getChildAt(1) as? TextView
+                val color = button.tag as? CubeColor
+
+                if (color != null) {
+                    // Update info text
+                    val currentPoints = GameState.getCurrentPoints(color)
+                    val level = GameState.getUpgradeLevel(color)
+                    infoText?.text = "Value: $currentPoints | Level: $level"
+
+                    // Update button text
+                    val cost = GameState.getUpgradeCost(color)
+                    button.text = "Upgrade (${String.format("%.2f", cost)})"
+
+                    // Update button color
+                    if (GameState.canAffordUpgrade(color)) {
+                        button.setBackgroundColor(Color.rgb(50, 150, 50))
+                    } else {
+                        button.setBackgroundColor(Color.rgb(100, 100, 100))
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Start regular updates
+        updateHandler.post(updateRunnable)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Stop updates when activity is paused
+        updateHandler.removeCallbacks(updateRunnable)
+        GameState.markActiveTime()
+
+        // Save state
+        GameState.saveState(this)
+    }
+}

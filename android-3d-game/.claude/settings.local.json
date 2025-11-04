@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gradlew.bat assembleDebug:*)",
+      "Bash(cmd /c gradlew.bat assembleDebug)",
+      "Bash(.gradlew.bat assembleDebug)",
+      "Bash(powershell -Command \".\\gradlew.bat assembleDebug\")",
+      "Bash(powershell -Command \"Invoke-WebRequest -Uri ''https://raw.githubusercontent.com/gradle/gradle/master/gradle/wrapper/gradle-wrapper.jar'' -OutFile ''gradle/wrapper/gradle-wrapper.jar''\")",
+      "Bash(java:*)",
+      "Bash(powershell:*)",
+      "Bash(cmd /c \"set JAVA_HOME=C:\\Program Files\\Eclipse Adoptium\\jdk-11.0.28.6-hotspot && gradlew.bat assembleDebug\")",
+      "Bash(cmd /c build-with-java11.bat)",
+      "Bash(./build-with-java11.bat)",
+      "Bash(adb devices:*)",
+      "Bash(adb install:*)",
+      "Bash(adb shell:*)",
+      "Bash(adb kill-server:*)",
+      "Bash(adb start-server:*)",
+      "Bash(dir:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
