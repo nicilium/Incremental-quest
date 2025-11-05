@@ -12,7 +12,9 @@ class GameRenderer(
     private val gameState: GameState,
     private val onScoreUpdate: () -> Unit
 ) : GLSurfaceView.Renderer {
-    private lateinit var cube: Cube
+    private lateinit var d4: D4
+    private lateinit var d6: D6
+    private lateinit var d8: D8
     private lateinit var d10: D10
     private lateinit var d12: D12
     private lateinit var d20: D20
@@ -74,7 +76,9 @@ class GameRenderer(
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
 
         // Alle Würfel erstellen
-        cube = Cube()
+        d4 = D4()
+        d6 = D6()
+        d8 = D8()
         d10 = D10()
         d12 = D12()
         d20 = D20()
@@ -181,12 +185,14 @@ class GameRenderer(
         Matrix.multiplyMM(tempMatrix, 0, viewMatrix, 0, rotationMatrix, 0)
         Matrix.multiplyMM(mvpMatrix, 0, projectionMatrix, 0, tempMatrix, 0)
 
-        // Richtigen Würfel basierend auf Upgrade zeichnen
+        // Richtigen Würfel basierend auf Upgrade zeichnen (highest priority first)
         when {
             gameState.d20Active -> d20.draw(mvpMatrix)
             gameState.d12Active -> d12.draw(mvpMatrix)
             gameState.d10Active -> d10.draw(mvpMatrix)
-            else -> cube.draw(mvpMatrix)
+            gameState.d8Active -> d8.draw(mvpMatrix)
+            gameState.d6Active -> d6.draw(mvpMatrix)
+            else -> d4.draw(mvpMatrix)  // Default: D4
         }
     }
 
