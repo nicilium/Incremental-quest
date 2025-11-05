@@ -204,12 +204,13 @@ class SettingsActivity : Activity() {
             }
             4 -> {
                 // Final reset
-                GameState.reset()
-                GameState.saveState(this)
+                GameState.clearSaveData(this)  // Clear SharedPreferences completely
+                GameState.reset()              // Reset all game state variables
+                GameState.saveState(this)      // Save clean state
 
                 button.text = "✓ Game reset!"
                 button.setBackgroundColor(Color.rgb(50, 150, 50))
-                warningText.text = "Restart app recommended."
+                warningText.text = "Game completely reset. Restart recommended."
                 warningText.textSize = 16f
                 warningText.setTextColor(Color.rgb(100, 255, 100))
 

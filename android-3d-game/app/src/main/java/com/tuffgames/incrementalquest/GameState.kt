@@ -660,10 +660,29 @@ object GameState {
         upgradeLevels.keys.forEach { upgradeLevels[it] = 0 }
         upgradeCount.keys.forEach { upgradeCount[it] = 0 }
         costMultipliers.keys.forEach { costMultipliers[it] = 1.0 }
+
+        // Clear permanent color upgrades
+        permanentColorUpgrades.clear()
+
+        // Reset buff system
+        lastBuffOfferTime = 0L
+        availableBuffType = null
+        activeBuffType = null
+        buffEndTime = 0L
+        buffTimeMultiplier = 1
+        buffOffersWithoutEssence = 0
+
+        // Reset time tracking
+        lastActiveTime = System.currentTimeMillis()
     }
 
     // Save-System
     private const val PREFS_NAME = "CubeClickerSaveData"
+
+    fun clearSaveData(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().clear().apply()
+    }
 
     fun saveState(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
