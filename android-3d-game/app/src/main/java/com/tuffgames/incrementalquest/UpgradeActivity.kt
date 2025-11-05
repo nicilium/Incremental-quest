@@ -93,42 +93,35 @@ class UpgradeActivity : Activity() {
         val autoClickerCard = createAutoClickerCard()
         upgradeContainer.addView(autoClickerCard)
 
-        val colors = mutableListOf(
+        // Get available colors from GameState (respects current die)
+        val availableColors = GameState.getAvailableColors()
+
+        // Color names mapping
+        val colorNames = mapOf(
             CubeColor.RED to "🔴 Red",
             CubeColor.GREEN to "🟢 Green",
             CubeColor.BLUE to "🔵 Blue",
             CubeColor.YELLOW to "🟡 Yellow",
             CubeColor.MAGENTA to "🟣 Magenta",
-            CubeColor.CYAN to "🩵 Cyan"
+            CubeColor.CYAN to "🩵 Cyan",
+            CubeColor.ORANGE to "🟠 Orange",
+            CubeColor.PINK to "🩷 Pink",
+            CubeColor.PURPLE to "🟪 Purple",
+            CubeColor.TURQUOISE to "🟦 Turquoise",
+            CubeColor.LIME to "🟩 Lime",
+            CubeColor.BROWN to "🟫 Brown",
+            CubeColor.GOLD to "🟨 Gold",
+            CubeColor.SILVER to "⬜ Silver",
+            CubeColor.BRONZE to "🟧 Bronze",
+            CubeColor.NAVY to "🔷 Navy",
+            CubeColor.MAROON to "🔶 Maroon",
+            CubeColor.OLIVE to "🫒 Olive",
+            CubeColor.TEAL to "🔹 Teal",
+            CubeColor.CORAL to "🪸 Coral"
         )
 
-        // D10 colors
-        if (GameState.d10Active) {
-            colors.add(CubeColor.ORANGE to "🟠 Orange")
-            colors.add(CubeColor.PINK to "🩷 Pink")
-            colors.add(CubeColor.PURPLE to "🟪 Purple")
-            colors.add(CubeColor.TURQUOISE to "🟦 Turquoise")
-        }
-
-        // D12 colors
-        if (GameState.d12Active) {
-            colors.add(CubeColor.LIME to "🟩 Lime")
-            colors.add(CubeColor.BROWN to "🟫 Brown")
-        }
-
-        // D20 colors
-        if (GameState.d20Active) {
-            colors.add(CubeColor.GOLD to "🟨 Gold")
-            colors.add(CubeColor.SILVER to "⬜ Silver")
-            colors.add(CubeColor.BRONZE to "🟧 Bronze")
-            colors.add(CubeColor.NAVY to "🔷 Navy")
-            colors.add(CubeColor.MAROON to "🔶 Maroon")
-            colors.add(CubeColor.OLIVE to "🫒 Olive")
-            colors.add(CubeColor.TEAL to "🔹 Teal")
-            colors.add(CubeColor.CORAL to "🪸 Coral")
-        }
-
-        colors.forEach { (color, name) ->
+        availableColors.forEach { color ->
+            val name = colorNames[color] ?: color.name
             val upgradeCard = createUpgradeCard(color, name)
             upgradeContainer.addView(upgradeCard)
         }

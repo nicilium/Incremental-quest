@@ -43,20 +43,28 @@ class GameRenderer(
     data class Rotation(val x: Float, val y: Float)
 
     private val colorRotations = mapOf(
-        CubeColor.RED to Rotation(0f, 0f),        // Vorderseite
-        CubeColor.GREEN to Rotation(0f, 180f),    // Rückseite
-        CubeColor.BLUE to Rotation(0f, -90f),     // Links
-        CubeColor.YELLOW to Rotation(0f, 90f),    // Rechts
-        CubeColor.MAGENTA to Rotation(-90f, 0f),  // Oben
-        CubeColor.CYAN to Rotation(90f, 0f),      // Unten
-        // D10 Farben
+        // D4 Tetraeder-spezifische Rotationen
+        CubeColor.RED to Rotation(0f, 0f),         // Vorderseite (Face 0)
+        CubeColor.GREEN to Rotation(20f, -120f),   // Links (Face 1)
+        CubeColor.BLUE to Rotation(20f, 120f),     // Rechts (Face 2)
+        CubeColor.YELLOW to Rotation(60f, 0f),     // Unten (Face 3)
+
+        // D6 Cube Rotationen
+        CubeColor.MAGENTA to Rotation(-90f, 0f),   // Oben
+        CubeColor.CYAN to Rotation(90f, 0f),       // Unten
+
+        // D8 Oktaeder Farben
         CubeColor.ORANGE to Rotation(0f, 45f),
         CubeColor.PINK to Rotation(0f, 135f),
+
+        // D10 Farben
         CubeColor.PURPLE to Rotation(0f, -45f),
         CubeColor.TURQUOISE to Rotation(0f, -135f),
+
         // D12 Farben
         CubeColor.LIME to Rotation(45f, 0f),
         CubeColor.BROWN to Rotation(-45f, 0f),
+
         // D20 Farben
         CubeColor.GOLD to Rotation(45f, 45f),
         CubeColor.SILVER to Rotation(45f, -45f),
