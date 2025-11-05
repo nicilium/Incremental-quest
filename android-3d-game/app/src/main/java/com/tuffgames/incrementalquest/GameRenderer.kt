@@ -42,12 +42,15 @@ class GameRenderer(
     // Jede Farbe hat X- und Y-Rotation
     data class Rotation(val x: Float, val y: Float)
 
+    // D4 verwendet eine feste Rotation und dynamische Farbe
+    private val d4Rotation = Rotation(-55f, 0f)
+
     private val colorRotations = mapOf(
-        // D4 Tetraeder - Jede Fläche mit optimiertem Winkel für frontale Ansicht
-        CubeColor.RED to Rotation(-55f, 0f),        // Vorderseite
-        CubeColor.GREEN to Rotation(-55f, -120f),   // Linke Seite
-        CubeColor.BLUE to Rotation(-55f, 120f),     // Rechte Seite
-        CubeColor.YELLOW to Rotation(135f, 180f),   // Untere Seite - von unten frontal
+        // D4 Tetraeder - Alle Farben verwenden dieselbe Rotation
+        CubeColor.RED to d4Rotation,
+        CubeColor.GREEN to d4Rotation,
+        CubeColor.BLUE to d4Rotation,
+        CubeColor.YELLOW to d4Rotation,
 
         // D6 Cube Rotationen
         CubeColor.MAGENTA to Rotation(-90f, 0f),   // Oben
@@ -75,6 +78,32 @@ class GameRenderer(
         CubeColor.TEAL to Rotation(45f, -90f),
         CubeColor.CORAL to Rotation(-45f, -90f)
     )
+
+    // Mapping von CubeColor zu RGBA FloatArray für D4
+    private fun getColorArray(color: CubeColor): FloatArray {
+        return when (color) {
+            CubeColor.RED -> floatArrayOf(1f, 0f, 0f, 1f)
+            CubeColor.GREEN -> floatArrayOf(0f, 1f, 0f, 1f)
+            CubeColor.BLUE -> floatArrayOf(0f, 0f, 1f, 1f)
+            CubeColor.YELLOW -> floatArrayOf(1f, 1f, 0f, 1f)
+            CubeColor.MAGENTA -> floatArrayOf(1f, 0f, 1f, 1f)
+            CubeColor.CYAN -> floatArrayOf(0f, 1f, 1f, 1f)
+            CubeColor.ORANGE -> floatArrayOf(1f, 0.5f, 0f, 1f)
+            CubeColor.PINK -> floatArrayOf(1f, 0.75f, 0.8f, 1f)
+            CubeColor.PURPLE -> floatArrayOf(0.5f, 0f, 0.5f, 1f)
+            CubeColor.TURQUOISE -> floatArrayOf(0.25f, 0.88f, 0.82f, 1f)
+            CubeColor.LIME -> floatArrayOf(0.75f, 1f, 0f, 1f)
+            CubeColor.BROWN -> floatArrayOf(0.6f, 0.3f, 0f, 1f)
+            CubeColor.GOLD -> floatArrayOf(1f, 0.84f, 0f, 1f)
+            CubeColor.SILVER -> floatArrayOf(0.75f, 0.75f, 0.75f, 1f)
+            CubeColor.BRONZE -> floatArrayOf(0.8f, 0.5f, 0.2f, 1f)
+            CubeColor.NAVY -> floatArrayOf(0f, 0f, 0.5f, 1f)
+            CubeColor.MAROON -> floatArrayOf(0.5f, 0f, 0f, 1f)
+            CubeColor.OLIVE -> floatArrayOf(0.5f, 0.5f, 0f, 1f)
+            CubeColor.TEAL -> floatArrayOf(0f, 0.5f, 0.5f, 1f)
+            CubeColor.CORAL -> floatArrayOf(1f, 0.5f, 0.31f, 1f)
+        }
+    }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         // Hintergrundfarbe setzen (dunkelblau)
@@ -200,7 +229,11 @@ class GameRenderer(
             gameState.d10Active -> d10.draw(mvpMatrix)
             gameState.d8Active -> d8.draw(mvpMatrix)
             gameState.d6Active -> d6.draw(mvpMatrix)
-            else -> d4.draw(mvpMatrix)  // Default: D4
+            else -> {
+                // D4: Farbe dynamisch basierend auf currentColor übergeben
+                val color = getColorArray(currentColor)
+                d4.draw(mvpMatrix, color)
+            }
         }
     }
 

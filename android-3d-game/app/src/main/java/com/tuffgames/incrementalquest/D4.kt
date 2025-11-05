@@ -8,7 +8,6 @@ import kotlin.math.sqrt
 
 class D4 {
     private val vertexBuffer: FloatBuffer
-    private val colorBuffer: FloatBuffer
     private val program: Int
 
     private val vertexCount = 12 // 4 Flächen * 3 Vertices
@@ -17,28 +16,24 @@ class D4 {
     private val vertexShaderCode = """
         uniform mat4 uMVPMatrix;
         attribute vec4 vPosition;
-        attribute vec4 vColor;
-        varying vec4 fColor;
 
         void main() {
             gl_Position = uMVPMatrix * vPosition;
-            fColor = vColor;
         }
     """.trimIndent()
 
-    // Fragment Shader
+    // Fragment Shader mit Uniform Color
     private val fragmentShaderCode = """
         precision mediump float;
-        varying vec4 fColor;
+        uniform vec4 uColor;
 
         void main() {
-            gl_FragColor = fColor;
+            gl_FragColor = uColor;
         }
     """.trimIndent()
 
     init {
         val vertices = mutableListOf<Float>()
-        val colors = mutableListOf<Float>()
 
         // D4 als regulärer Tetraeder
         // 4 Vertices definieren einen Tetraeder
@@ -51,29 +46,18 @@ class D4 {
         val v2 = floatArrayOf(scale, -h/2, scale)           // Vorne Rechts
         val v3 = floatArrayOf(0f, -h/2, -scale * 1.5f)      // Hinten
 
-        // Farben für die 4 Flächen
-        // WICHTIG: Zuordnung basierend auf GameRenderer Rotationen!
-        // RED rotation (-55°, 0°) zeigt Face 0 (Vorne) → Rot zuordnen
-        // GREEN rotation (-55°, -120°) zeigt Face 2 (Rechts, da Y=-120° rechte Seite nach vorne dreht) → Grün zuordnen
-        // BLUE rotation (-55°, 120°) zeigt Face 1 (Links, da Y=+120° linke Seite nach vorne dreht) → Blau zuordnen
-        // YELLOW rotation (135°, 180°) zeigt Face 3 (Unten) → Gelb zuordnen
+        // Einfarbiger Tetraeder - Farbe wird beim Zeichnen übergeben
+        // Face 0: Vorne (v0, v1, v2)
+        addTriangle(vertices, v0, v1, v2)
 
-        val redColor = floatArrayOf(1f, 0f, 0f, 1f)      // Rot = 1 Punkt
-        val greenColor = floatArrayOf(0f, 1f, 0f, 1f)    // Grün = 2 Punkte
-        val blueColor = floatArrayOf(0f, 0f, 1f, 1f)     // Blau = 3 Punkte
-        val yellowColor = floatArrayOf(1f, 1f, 0f, 1f)   // Gelb = 4 Punkte
+        // Face 1: Links (v0, v3, v1)
+        addTriangle(vertices, v0, v3, v1)
 
-        // Face 0: Vorne (v0, v1, v2) - ROT (wird bei RED rotation gezeigt)
-        addTriangle(vertices, colors, v0, v1, v2, redColor)
+        // Face 2: Rechts (v0, v2, v3)
+        addTriangle(vertices, v0, v2, v3)
 
-        // Face 1: Links (v0, v3, v1) - BLAU (wird bei BLUE rotation gezeigt)
-        addTriangle(vertices, colors, v0, v3, v1, blueColor)
-
-        // Face 2: Rechts (v0, v2, v3) - GRÜN (wird bei GREEN rotation gezeigt)
-        addTriangle(vertices, colors, v0, v2, v3, greenColor)
-
-        // Face 3: Unten (v1, v3, v2) - GELB (wird bei YELLOW rotation gezeigt)
-        addTriangle(vertices, colors, v1, v3, v2, yellowColor)
+        // Face 3: Unten (v1, v3, v2)
+        addTriangle(vertices, v1, v3, v2)
 
         // Vertex Buffer initialisieren
         val vb = ByteBuffer.allocateDirect(vertices.size * 4)
@@ -81,13 +65,6 @@ class D4 {
         vertexBuffer = vb.asFloatBuffer()
         vertexBuffer.put(vertices.toFloatArray())
         vertexBuffer.position(0)
-
-        // Color Buffer initialisieren
-        val cb = ByteBuffer.allocateDirect(colors.size * 4)
-        cb.order(ByteOrder.nativeOrder())
-        colorBuffer = cb.asFloatBuffer()
-        colorBuffer.put(colors.toFloatArray())
-        colorBuffer.position(0)
 
         // Shader kompilieren und Programm erstellen
         val vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexShaderCode)
@@ -102,11 +79,9 @@ class D4 {
 
     private fun addTriangle(
         vertices: MutableList<Float>,
-        colors: MutableList<Float>,
         v1: FloatArray,
         v2: FloatArray,
-        v3: FloatArray,
-        color: FloatArray
+        v3: FloatArray
     ) {
         // Vertex 1
         vertices.add(v1[0])
@@ -122,14 +97,6 @@ class D4 {
         vertices.add(v3[0])
         vertices.add(v3[1])
         vertices.add(v3[2])
-
-        // Farbe für alle 3 Vertices
-        for (i in 0 until 3) {
-            colors.add(color[0])
-            colors.add(color[1])
-            colors.add(color[2])
-            colors.add(color[3])
-        }
     }
 
     private fun loadShader(type: Int, shaderCode: String): Int {
@@ -139,7 +106,7 @@ class D4 {
         }
     }
 
-    fun draw(mvpMatrix: FloatArray) {
+    fun draw(mvpMatrix: FloatArray, color: FloatArray) {
         // Shader-Programm aktivieren
         GLES20.glUseProgram(program)
 
@@ -148,10 +115,9 @@ class D4 {
         GLES20.glEnableVertexAttribArray(positionHandle)
         GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 12, vertexBuffer)
 
-        // Color Handle
-        val colorHandle = GLES20.glGetAttribLocation(program, "vColor")
-        GLES20.glEnableVertexAttribArray(colorHandle)
-        GLES20.glVertexAttribPointer(colorHandle, 4, GLES20.GL_FLOAT, false, 16, colorBuffer)
+        // Color als Uniform übergeben
+        val colorHandle = GLES20.glGetUniformLocation(program, "uColor")
+        GLES20.glUniform4fv(colorHandle, 1, color, 0)
 
         // MVP Matrix Handle
         val mvpMatrixHandle = GLES20.glGetUniformLocation(program, "uMVPMatrix")
@@ -162,6 +128,5 @@ class D4 {
 
         // Cleanup
         GLES20.glDisableVertexAttribArray(positionHandle)
-        GLES20.glDisableVertexAttribArray(colorHandle)
     }
 }
