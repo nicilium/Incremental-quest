@@ -118,6 +118,25 @@ object GameState {
         CubeColor.CORAL to 20
     )
 
+    // Base cost for permanent color upgrades by dice tier (3x multiplier between tiers)
+    private fun getColorTierBaseCost(color: CubeColor): Int {
+        val basePoints = baseColorPoints[color] ?: 1
+        return when (basePoints) {
+            in 1..4 -> 5      // D4: 5 DE
+            in 5..6 -> 15     // D6: 15 DE (3x)
+            in 7..8 -> 45     // D8: 45 DE (3x)
+            in 9..10 -> 135   // D10: 135 DE (3x)
+            in 11..12 -> 405  // D12: 405 DE (3x)
+            else -> 1215      // D20: 1215 DE (3x)
+        }
+    }
+
+    // Maximum level for permanent color upgrades
+    private val maxPermanentColorLevel = 10
+
+    // Time tracking for passive points from permanent color upgrades
+    private var lastPassivePointsUpdate = System.currentTimeMillis()
+
     // Upgrade-Level für jede Farbe (gesamt hinzugefügte Punkte)
     private val upgradeLevels = mutableMapOf(
         CubeColor.RED to 0,
@@ -191,6 +210,9 @@ object GameState {
     )
 
     fun onColorClicked(color: CubeColor) {
+        // Apply passive points from permanent color upgrades
+        applyPassivePoints()
+
         // Update extra dice buffs first
         updateExtraDiceBuffs()
 
@@ -203,14 +225,12 @@ object GameState {
         val upgradeCount = upgradeCount[color] ?: 0
         val upgradeBonus = basePoints * upgradeCount
 
-        // Permanent color upgrades: +1 per upgrade (survives prestige!)
-        val permanentBonus = permanentColorUpgrades[color] ?: 0
-
         // Divine Essence bonus (multiplicative with level-based scaling):
         val essenceBonus = calculateEssenceBonus()
 
         // Total points (as Double because of Divine Essence bonus)
-        var totalPoints = (basePoints + upgradeBonus + permanentBonus).toDouble() + essenceBonus
+        // Note: Permanent color upgrades now give passive points/sec instead of flat bonus
+        var totalPoints = (basePoints + upgradeBonus).toDouble() + essenceBonus
 
         // Extra Dice: Apply flat score bonus (consumed)
         if (flatScoreBonusNextClick > 0) {
@@ -285,13 +305,11 @@ object GameState {
         val count = upgradeCount[color] ?: 0
         val upgradeBonus = basePoints * count
 
-        // Permanent color upgrades: +1 per upgrade (survives prestige!)
-        val permanentBonus = permanentColorUpgrades[color] ?: 0
-
         // Divine Essence bonus (multiplicative with level-based scaling):
         val essenceBonus = calculateEssenceBonus()
 
-        return (basePoints + upgradeBonus + permanentBonus + essenceBonus).toInt()
+        // Note: Permanent color upgrades now give passive points/sec instead of flat bonus
+        return (basePoints + upgradeBonus + essenceBonus).toInt()
     }
 
     // Average click value across all colors
@@ -437,17 +455,16 @@ object GameState {
     fun getPermanentColorUpgradeCost(color: CubeColor): Int {
         val currentLevel = getPermanentColorUpgradeLevel(color)
 
-        if (currentLevel == 0) {
-            return 1  // Initial: 1 Lackdose
+        // Max level is 10
+        if (currentLevel >= maxPermanentColorLevel) {
+            return Int.MAX_VALUE
         }
 
-        // Kosten erhöhen sich um ×1.001 pro Level (aufgerundet)
-        var cost = 1.0
-        for (i in 1..currentLevel) {
-            cost *= 1.001
-        }
-
-        return kotlin.math.ceil(cost).toInt()
+        // Cost = baseCost × (nextLevel)
+        // Example: RED Level 1 = 5 × 1 = 5 DE, Level 2 = 5 × 2 = 10 DE
+        val baseCost = getColorTierBaseCost(color)
+        val nextLevel = currentLevel + 1
+        return baseCost * nextLevel
     }
 
     fun canAffordPermanentColorUpgrade(color: CubeColor): Boolean {
@@ -464,6 +481,43 @@ object GameState {
         permanentColorUpgrades[color] = currentLevel + 1
 
         return true
+    }
+
+    // Calculate passive points per second for a specific color
+    fun getPassivePointsPerSecond(color: CubeColor): Double {
+        val level = getPermanentColorUpgradeLevel(color)
+        if (level == 0) return 0.0
+
+        val basePoints = baseColorPoints[color] ?: 1
+        // Level 10 = 100% of basePoints/sec, Level 1 = 10%, etc.
+        return (level.toDouble() / maxPermanentColorLevel) * basePoints
+    }
+
+    // Calculate total passive points per second from all colors
+    fun getTotalPassivePointsPerSecond(): Double {
+        var total = 0.0
+        CubeColor.values().forEach { color ->
+            total += getPassivePointsPerSecond(color)
+        }
+        return total
+    }
+
+    // Apply passive points since last update
+    private fun applyPassivePoints() {
+        val currentTime = System.currentTimeMillis()
+        val timeDelta = (currentTime - lastPassivePointsUpdate) / 1000.0  // Convert to seconds
+
+        if (timeDelta > 0) {
+            val passivePointsPerSec = getTotalPassivePointsPerSecond()
+            val pointsToAdd = passivePointsPerSec * timeDelta
+
+            if (pointsToAdd > 0) {
+                totalScore += pointsToAdd
+                lifetimeScore += pointsToAdd
+            }
+
+            lastPassivePointsUpdate = currentTime
+        }
     }
 
     // Auto Clicker Upgrade
@@ -1140,6 +1194,9 @@ object GameState {
 
             extraDice.add(die)
         }
+
+        // Reset passive points timer to prevent huge point gains on first load
+        lastPassivePointsUpdate = System.currentTimeMillis()
     }
 
     // Buff system functions

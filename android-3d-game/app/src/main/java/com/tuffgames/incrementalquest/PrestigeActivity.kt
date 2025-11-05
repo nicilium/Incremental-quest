@@ -777,11 +777,21 @@ class PrestigeActivity : Activity() {
 
         // Description
         val descText = TextView(this)
-        descText.text = "+1 point per color\nSurvives prestige!"
+        descText.text = "Passive points/sec per color (Max Lv 10)\nLevel 10 = full base points/sec | Survives prestige!"
         descText.textSize = 14f
         descText.setTextColor(Color.LTGRAY)
         descText.setPadding(0, 5, 0, 15)
         card.addView(descText)
+
+        // Total passive points/sec display
+        val totalPassiveText = TextView(this)
+        val totalPassive = GameState.getTotalPassivePointsPerSecond()
+        totalPassiveText.text = String.format("⏱️ Total Passive: %.2f pts/sec", totalPassive)
+        totalPassiveText.textSize = 16f
+        totalPassiveText.setTextColor(Color.rgb(100, 255, 100))
+        totalPassiveText.gravity = Gravity.CENTER
+        totalPassiveText.setPadding(0, 5, 0, 15)
+        card.addView(totalPassiveText)
 
         // List of all colors
         val colors = mutableListOf(
@@ -833,12 +843,20 @@ class PrestigeActivity : Activity() {
             LinearLayout.LayoutParams.WRAP_CONTENT
         )
 
-        // Color name and level
+        // Color name, level, and passive pts/sec
         val infoText = TextView(this)
         val level = GameState.getPermanentColorUpgradeLevel(color)
-        infoText.text = "$name (Lv $level)"
+        val passivePts = GameState.getPassivePointsPerSecond(color)
+        val maxLevel = 10
+
+        if (level >= maxLevel) {
+            infoText.text = String.format("%s (MAX) [%.1f pts/s]", name, passivePts)
+        } else {
+            infoText.text = String.format("%s (Lv %d/%d) [%.1f pts/s]", name, level, maxLevel, passivePts)
+        }
+
         infoText.textSize = 16f
-        infoText.setTextColor(Color.WHITE)
+        infoText.setTextColor(if (level >= maxLevel) Color.rgb(255, 215, 0) else Color.WHITE)
         infoText.layoutParams = LinearLayout.LayoutParams(
             0,
             LinearLayout.LayoutParams.WRAP_CONTENT,
