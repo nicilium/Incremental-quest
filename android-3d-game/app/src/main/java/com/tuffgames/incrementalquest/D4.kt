@@ -52,24 +52,28 @@ class D4 {
         val v3 = floatArrayOf(0f, -h/2, -scale * 1.5f)      // Hinten
 
         // Farben für die 4 Flächen
-        val faceColors = listOf(
-            floatArrayOf(1f, 0f, 0f, 1f),         // 0 - Rot (Vorne)
-            floatArrayOf(0f, 1f, 0f, 1f),         // 1 - Grün (Links)
-            floatArrayOf(0f, 0f, 1f, 1f),         // 2 - Blau (Rechts)
-            floatArrayOf(1f, 1f, 0f, 1f)          // 3 - Gelb (Unten)
-        )
+        // WICHTIG: Zuordnung basierend auf GameRenderer Rotationen!
+        // RED rotation (-55°, 0°) zeigt Face 3 (Unten) → Rot zuordnen
+        // GREEN rotation (-55°, -120°) zeigt Face 2 (Rechts) → Grün zuordnen
+        // BLUE rotation (-55°, 120°) zeigt Face 1 (Links) → Blau zuordnen
+        // YELLOW rotation (135°, 180°) zeigt Face 0 (Vorne) → Gelb zuordnen
 
-        // Face 0: Vorne (v0, v1, v2) - Rot
-        addTriangle(vertices, colors, v0, v1, v2, faceColors[0])
+        val redColor = floatArrayOf(1f, 0f, 0f, 1f)      // Rot = 1 Punkt
+        val greenColor = floatArrayOf(0f, 1f, 0f, 1f)    // Grün = 2 Punkte
+        val blueColor = floatArrayOf(0f, 0f, 1f, 1f)     // Blau = 3 Punkte
+        val yellowColor = floatArrayOf(1f, 1f, 0f, 1f)   // Gelb = 4 Punkte
 
-        // Face 1: Links (v0, v3, v1) - Grün
-        addTriangle(vertices, colors, v0, v3, v1, faceColors[1])
+        // Face 0: Vorne (v0, v1, v2) - GELB (wird bei YELLOW rotation gezeigt)
+        addTriangle(vertices, colors, v0, v1, v2, yellowColor)
 
-        // Face 2: Rechts (v0, v2, v3) - Blau
-        addTriangle(vertices, colors, v0, v2, v3, faceColors[2])
+        // Face 1: Links (v0, v3, v1) - BLAU (wird bei BLUE rotation gezeigt)
+        addTriangle(vertices, colors, v0, v3, v1, blueColor)
 
-        // Face 3: Unten (v1, v3, v2) - Gelb
-        addTriangle(vertices, colors, v1, v3, v2, faceColors[3])
+        // Face 2: Rechts (v0, v2, v3) - GRÜN (wird bei GREEN rotation gezeigt)
+        addTriangle(vertices, colors, v0, v2, v3, greenColor)
+
+        // Face 3: Unten (v1, v3, v2) - ROT (wird bei RED rotation gezeigt)
+        addTriangle(vertices, colors, v1, v3, v2, redColor)
 
         // Vertex Buffer initialisieren
         val vb = ByteBuffer.allocateDirect(vertices.size * 4)
