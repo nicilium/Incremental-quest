@@ -663,107 +663,97 @@ class PrestigeActivity : Activity() {
         titleText.setTextColor(Color.rgb(255, 215, 0))
         card.addView(titleText)
 
-        // Description
-        val descText = TextView(this)
-        descText.text = "Each tier gives +1 point per click"
-        descText.textSize = 14f
-        descText.setTextColor(Color.LTGRAY)
-        descText.setPadding(0, 5, 0, 15)
-        card.addView(descText)
+        // Current Level
+        val levelText = TextView(this)
+        levelText.text = "Current Level: ${GameState.essencePowerLevel}"
+        levelText.textSize = 20f
+        levelText.setTextColor(Color.rgb(100, 255, 100))
+        levelText.gravity = Gravity.CENTER
+        levelText.setPadding(0, 10, 0, 5)
+        card.addView(levelText)
 
-        // Current bonus
-        val totalBonus = GameState.getEssencePowerTotalBonus()
+        // Current Multiplier
+        val multiplier = GameState.getEssencePowerMultiplier()
+        val multiplierText = TextView(this)
+        multiplierText.text = String.format("Multiplier: %.2f%% (×%.4f)", multiplier * 100, multiplier)
+        multiplierText.textSize = 16f
+        multiplierText.setTextColor(Color.rgb(150, 255, 150))
+        multiplierText.gravity = Gravity.CENTER
+        multiplierText.setPadding(0, 5, 0, 5)
+        card.addView(multiplierText)
+
+        // Current Bonus Amount
+        val bonusAmount = GameState.totalDivineEssenceEarned * multiplier
         val bonusText = TextView(this)
-        bonusText.text = "Current value: $totalBonus"
-        bonusText.textSize = 18f
-        bonusText.setTextColor(Color.rgb(100, 255, 100))
+        bonusText.text = String.format("Bonus: +%.1f points per click", bonusAmount)
+        bonusText.textSize = 14f
+        bonusText.setTextColor(Color.rgb(200, 255, 200))
         bonusText.gravity = Gravity.CENTER
-        bonusText.setPadding(0, 0, 0, 15)
+        bonusText.setPadding(0, 5, 0, 15)
         card.addView(bonusText)
 
-        // Compact list of all 10 tiers (2 columns)
-        for (row in 0 until 5) {
-            val rowLayout = LinearLayout(this)
-            rowLayout.orientation = LinearLayout.HORIZONTAL
-            rowLayout.layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-
-            // Linke Spalte (Tier 0, 2, 4, 6, 8)
-            val leftTier = row * 2
-            val leftButton = createTierButton(leftTier)
-            leftButton.layoutParams = LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                1f
-            )
-            rowLayout.addView(leftButton)
-
-            // Spacer
-            val spacer = TextView(this)
-            spacer.text = ""
-            spacer.layoutParams = LinearLayout.LayoutParams(10, LinearLayout.LayoutParams.WRAP_CONTENT)
-            rowLayout.addView(spacer)
-
-            // Rechte Spalte (Tier 1, 3, 5, 7, 9)
-            val rightTier = row * 2 + 1
-            val rightButton = createTierButton(rightTier)
-            rightButton.layoutParams = LinearLayout.LayoutParams(
-                0,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                1f
-            )
-            rowLayout.addView(rightButton)
-
-            card.addView(rowLayout)
+        // Next Powerspike Info
+        val nextPowerspike = GameState.getNextPowerspikeLevel()
+        if (nextPowerspike > 0) {
+            val powerspikeText = TextView(this)
+            val levelsToGo = nextPowerspike - GameState.essencePowerLevel
+            val powerspikeBonus = when (nextPowerspike) {
+                10 -> "+10%"
+                25 -> "+20%"
+                50 -> "+40%"
+                100 -> "+100%"
+                else -> ""
+            }
+            powerspikeText.text = "🔥 Next Powerspike: Level $nextPowerspike ($powerspikeBonus) - $levelsToGo levels to go!"
+            powerspikeText.textSize = 14f
+            powerspikeText.setTextColor(Color.rgb(255, 150, 50))
+            powerspikeText.gravity = Gravity.CENTER
+            powerspikeText.setPadding(5, 5, 5, 15)
+            card.addView(powerspikeText)
+        } else {
+            val maxText = TextView(this)
+            maxText.text = "🏆 All Powerspikes Reached! Keep leveling for linear gains."
+            maxText.textSize = 14f
+            maxText.setTextColor(Color.rgb(255, 215, 0))
+            maxText.gravity = Gravity.CENTER
+            maxText.setPadding(5, 5, 5, 15)
+            card.addView(maxText)
         }
+
+        // Upgrade Button
+        val cost = GameState.getEssencePowerCost()
+        val nextLevel = GameState.essencePowerLevel + 1
+        val isPowerspike = nextLevel == 10 || nextLevel == 25 || nextLevel == 50 || nextLevel == 100
+
+        val upgradeButton = Button(this)
+        upgradeButton.textSize = 16f
+        upgradeButton.setPadding(20, 20, 20, 20)
+
+        if (isPowerspike) {
+            upgradeButton.text = "🔥 POWERSPIKE LEVEL $nextLevel 🔥\nCost: $cost Divine Essence"
+            upgradeButton.setBackgroundColor(Color.rgb(200, 50, 50))
+        } else {
+            upgradeButton.text = "Upgrade to Level $nextLevel\nCost: $cost Divine Essence"
+            upgradeButton.setBackgroundColor(if (GameState.canAffordEssencePower()) Color.rgb(50, 150, 50) else Color.rgb(100, 100, 100))
+        }
+
+        upgradeButton.setTextColor(Color.WHITE)
+        upgradeButton.setOnClickListener {
+            if (GameState.buyEssencePower()) {
+                showUpgradeView()  // Refresh
+            }
+        }
+        card.addView(upgradeButton)
+
+        // Description
+        val descText = TextView(this)
+        descText.text = "Each level increases the multiplier on your lifetime Divine Essence.\nPowerspikes at levels 10, 25, 50, and 100 grant massive bonuses!"
+        descText.textSize = 12f
+        descText.setTextColor(Color.LTGRAY)
+        descText.setPadding(0, 15, 0, 0)
+        card.addView(descText)
 
         return card
-    }
-
-    private fun createTierButton(tier: Int): Button {
-        val button = Button(this)
-        button.textSize = 12f
-        button.setPadding(5, 10, 5, 10)
-
-        val isUnlocked = GameState.isEssencePowerUnlocked(tier)
-        val isPurchased = GameState.isEssencePowerPurchased(tier)
-        val cost = GameState.getEssencePowerCost(tier)
-
-        // Text and color based on status
-        when {
-            isPurchased -> {
-                button.text = "✅ Tier ${tier + 1}"
-                button.setBackgroundColor(Color.rgb(30, 100, 30))
-                button.setTextColor(Color.WHITE)
-                button.isEnabled = false
-            }
-            isUnlocked -> {
-                if (GameState.canAffordEssencePower(tier)) {
-                    button.text = "Tier ${tier + 1}\n$cost"
-                    button.setBackgroundColor(Color.rgb(50, 150, 50))
-                    button.setTextColor(Color.WHITE)
-                } else {
-                    button.text = "Tier ${tier + 1}\n$cost"
-                    button.setBackgroundColor(Color.rgb(80, 80, 80))
-                    button.setTextColor(Color.DKGRAY)
-                }
-                button.setOnClickListener {
-                    if (GameState.buyEssencePower(tier)) {
-                        showUpgradeView()  // Refresh
-                    }
-                }
-            }
-            else -> {
-                button.text = "🔒 ${tier + 1}"
-                button.setBackgroundColor(Color.rgb(60, 40, 40))
-                button.setTextColor(Color.rgb(150, 150, 150))
-                button.isEnabled = false
-            }
-        }
-
-        return button
     }
 
     private fun createPermanentColorUpgradesCard(): LinearLayout {

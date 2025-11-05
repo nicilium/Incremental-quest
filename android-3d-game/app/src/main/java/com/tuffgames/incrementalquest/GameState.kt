@@ -31,8 +31,9 @@ object GameState {
     // How many prestige levels have been claimed
     private var prestigesClaimed = 0
 
-    // Essence Power Upgrades (10 tiers)
-    private val essencePowerUpgrades = BooleanArray(10) { false }  // 10 upgrade tiers
+    // Essence Power Level (unbounded, linear progression with powerspikes)
+    var essencePowerLevel = 0
+        private set
 
     // Permanent color upgrades with Divine Essence (NOT reset on prestige!)
     private val permanentColorUpgrades = mutableMapOf<CubeColor, Int>()
@@ -189,12 +190,8 @@ object GameState {
         // Permanent color upgrades: +1 per upgrade (survives prestige!)
         val permanentBonus = permanentColorUpgrades[color] ?: 0
 
-        // Divine Essence bonus (additive):
-        // - Base: totalDivineEssenceEarned × 0.01
-        // - Upgrade: +1 per unlocked tier (flat bonus!)
-        val baseEssenceBonus = totalDivineEssenceEarned * 0.01
-        val essencePowerBonus = essencePowerUpgrades.count { it }.toDouble()
-        val essenceBonus = baseEssenceBonus + essencePowerBonus
+        // Divine Essence bonus (multiplicative with level-based scaling):
+        val essenceBonus = calculateEssenceBonus()
 
         // Total points (as Double because of Divine Essence bonus)
         var totalPoints = (basePoints + upgradeBonus + permanentBonus).toDouble() + essenceBonus
@@ -262,12 +259,8 @@ object GameState {
         // Permanent color upgrades: +1 per upgrade (survives prestige!)
         val permanentBonus = permanentColorUpgrades[color] ?: 0
 
-        // Divine Essence bonus (additive):
-        // - Base: totalDivineEssenceEarned × 0.01
-        // - Upgrade: +1 per unlocked tier (flat bonus!)
-        val baseEssenceBonus = totalDivineEssenceEarned * 0.01
-        val essencePowerBonus = essencePowerUpgrades.count { it }.toDouble()
-        val essenceBonus = baseEssenceBonus + essencePowerBonus
+        // Divine Essence bonus (multiplicative with level-based scaling):
+        val essenceBonus = calculateEssenceBonus()
 
         return (basePoints + upgradeBonus + permanentBonus + essenceBonus).toInt()
     }
@@ -316,76 +309,95 @@ object GameState {
         }
     }
 
-    // Prestige Upgrade: Essence Power (10 tiers, +1 point per tier)
-    // Unlock requirements: 1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000
-    // Cost: Lifetime Divine Essence (consumed!)
+    // Prestige Upgrade: Essence Power (unbounded level-based system)
+    // Formula: level^1.3 scaling with powerspikes at 10, 25, 50, 100
+    // Powerspike levels cost more but grant massive bonuses
 
-    fun isEssencePowerUnlocked(tier: Int): Boolean {
-        if (tier < 0 || tier >= 10) return false
-        val required = when (tier) {
-            0 -> 1
-            1 -> 10
-            2 -> 100
-            3 -> 1000
-            4 -> 10000
-            5 -> 100000
-            6 -> 1000000
-            7 -> 10000000
-            8 -> 100000000
-            9 -> 1000000000
-            else -> Int.MAX_VALUE
+    // Calculate essence bonus based on level
+    private fun calculateEssenceBonus(): Double {
+        if (essencePowerLevel == 0) {
+            // Base: 1% of total earned essence
+            return totalDivineEssenceEarned * 0.01
         }
-        return totalDivineEssenceEarned >= required
+
+        // Base multiplier: 1%
+        var multiplier = 0.01
+
+        // Level bonus: level^1.3 × 0.01
+        val levelBonus = essencePowerLevel.toDouble().pow(1.3) * 0.01
+        multiplier += levelBonus
+
+        // Powerspike bonuses (cumulative)
+        val powerspikeBonus = when {
+            essencePowerLevel >= 100 -> 1.0  // +100% at level 100
+            essencePowerLevel >= 50 -> 0.4   // +40% at level 50
+            essencePowerLevel >= 25 -> 0.2   // +20% at level 25
+            essencePowerLevel >= 10 -> 0.1   // +10% at level 10
+            else -> 0.0
+        }
+        multiplier += powerspikeBonus
+
+        return totalDivineEssenceEarned * multiplier
     }
 
-    fun getEssencePowerCost(tier: Int): Int {
-        if (tier < 0 || tier >= 10) return -1
-        return when (tier) {
-            0 -> 1
-            1 -> 10
-            2 -> 100
-            3 -> 1000
-            4 -> 10000
-            5 -> 100000
-            6 -> 1000000
-            7 -> 10000000
-            8 -> 100000000
-            9 -> 1000000000
-            else -> -1
+    // Calculate cost for next essence power level
+    fun getEssencePowerCost(): Int {
+        val nextLevel = essencePowerLevel + 1
+
+        // Powerspike levels (10, 25, 50, 100) are much more expensive
+        val isPowerspike = nextLevel == 10 || nextLevel == 25 || nextLevel == 50 || nextLevel == 100
+
+        return if (isPowerspike) {
+            // Powerspikes: level^2.2 (expensive!)
+            kotlin.math.ceil(nextLevel.toDouble().pow(2.2)).toInt()
+        } else {
+            // Normal levels: level^1.6
+            kotlin.math.ceil(nextLevel.toDouble().pow(1.6)).toInt()
         }
     }
 
-    fun isEssencePowerPurchased(tier: Int): Boolean {
-        if (tier < 0 || tier >= 10) return false
-        return essencePowerUpgrades[tier]
+    fun canAffordEssencePower(): Boolean {
+        val cost = getEssencePowerCost()
+        return divineEssence >= cost
     }
 
-    fun canAffordEssencePower(tier: Int): Boolean {
-        if (tier < 0 || tier >= 10) return false
-        if (essencePowerUpgrades[tier]) return false  // Already bought
-        if (!isEssencePowerUnlocked(tier)) return false  // Not yet unlocked
+    fun buyEssencePower(): Boolean {
+        if (!canAffordEssencePower()) return false
 
-        val cost = getEssencePowerCost(tier)
-        return totalDivineEssenceEarned >= cost
-    }
-
-    fun buyEssencePower(tier: Int): Boolean {
-        if (!canAffordEssencePower(tier)) return false
-
-        val cost = getEssencePowerCost(tier)
-        totalDivineEssenceEarned -= cost  // IMPORTANT: Consumes Lifetime Divine Essence!
-        essencePowerUpgrades[tier] = true
+        val cost = getEssencePowerCost()
+        divineEssence -= cost
+        essencePowerLevel++
 
         return true
     }
 
-    fun getEssencePowerTotalBonus(): String {
-        // Shows the current bonus
-        val tierCount = essencePowerUpgrades.count { it }
-        val essenceBaseBonus = totalDivineEssenceEarned * 0.01
-        val tierBonus = tierCount
+    fun getEssencePowerMultiplier(): Double {
+        if (essencePowerLevel == 0) return 0.01  // 1% base
 
-        return String.format("%.2f (essence) + %d (tiers)", essenceBaseBonus, tierBonus)
+        var multiplier = 0.01
+        val levelBonus = essencePowerLevel.toDouble().pow(1.3) * 0.01
+        multiplier += levelBonus
+
+        val powerspikeBonus = when {
+            essencePowerLevel >= 100 -> 1.0
+            essencePowerLevel >= 50 -> 0.4
+            essencePowerLevel >= 25 -> 0.2
+            essencePowerLevel >= 10 -> 0.1
+            else -> 0.0
+        }
+        multiplier += powerspikeBonus
+
+        return multiplier
+    }
+
+    fun getNextPowerspikeLevel(): Int {
+        return when {
+            essencePowerLevel < 10 -> 10
+            essencePowerLevel < 25 -> 25
+            essencePowerLevel < 50 -> 50
+            essencePowerLevel < 100 -> 100
+            else -> -1  // No more powerspikes
+        }
     }
 
     // Permanent color upgrades with Divine Essence
@@ -636,9 +648,7 @@ object GameState {
         divineEssence = 0
         totalDivineEssenceEarned = 0
         prestigesClaimed = 0
-        for (i in 0 until 10) {
-            essencePowerUpgrades[i] = false
-        }
+        essencePowerLevel = 0
         autoClickerActive = false
         autoClickerSpeedLevel = 0
         d4Active = true  // Reset to D4 start
@@ -667,10 +677,9 @@ object GameState {
         editor.putInt("totalPaintCansEarned", totalDivineEssenceEarned)  // Keep old key for compatibility
         editor.putInt("prestigesClaimed", prestigesClaimed)
 
-        // Prestige upgrades (Essence Power)
-        for (i in 0 until 10) {
-            editor.putBoolean("paintCanBonusUpgrade_$i", essencePowerUpgrades[i])  // Keep old key for compatibility
-        }
+        // Essence Power Level (new system)
+        editor.putInt("essencePowerLevel", essencePowerLevel)
+
         editor.putBoolean("autoClickerActive", autoClickerActive)
         editor.putInt("autoClickerSpeedLevel", autoClickerSpeedLevel)
         editor.putBoolean("d4Active", d4Active)
@@ -755,10 +764,26 @@ object GameState {
             prefs.getFloat("prestigesClaimed", 0f).toInt()
         }
 
-        // Prestige upgrades (Essence Power)
-        for (i in 0 until 10) {
-            essencePowerUpgrades[i] = prefs.getBoolean("paintCanBonusUpgrade_$i", false)  // Keep old key for compatibility
+        // Essence Power Level (new system)
+        essencePowerLevel = try {
+            prefs.getInt("essencePowerLevel", 0)
+        } catch (e: ClassCastException) {
+            0
         }
+
+        // Migration: Convert old tier system to new level system
+        if (essencePowerLevel == 0 && prefs.contains("paintCanBonusUpgrade_0")) {
+            // Old save detected - count how many tiers were purchased
+            var oldTiersCount = 0
+            for (i in 0 until 10) {
+                if (prefs.getBoolean("paintCanBonusUpgrade_$i", false)) {
+                    oldTiersCount++
+                }
+            }
+            // Convert to new system: 1 old tier ≈ 3 new levels (generous migration)
+            essencePowerLevel = oldTiersCount * 3
+        }
+
         autoClickerActive = prefs.getBoolean("autoClickerActive", false)
 
         autoClickerSpeedLevel = try {
