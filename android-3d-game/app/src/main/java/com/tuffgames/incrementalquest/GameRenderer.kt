@@ -43,11 +43,11 @@ class GameRenderer(
     data class Rotation(val x: Float, val y: Float)
 
     private val colorRotations = mapOf(
-        // D4 Tetraeder-spezifische Rotationen
-        CubeColor.RED to Rotation(0f, 0f),         // Vorderseite (Face 0)
-        CubeColor.GREEN to Rotation(20f, -120f),   // Links (Face 1)
-        CubeColor.BLUE to Rotation(20f, 120f),     // Rechts (Face 2)
-        CubeColor.YELLOW to Rotation(60f, 0f),     // Unten (Face 3)
+        // D4 Tetraeder - Optimierte Rotationen für frontale Ansicht
+        CubeColor.RED to Rotation(-15f, 0f),        // Vorderseite (Face 0) - leicht nach oben
+        CubeColor.GREEN to Rotation(-15f, -120f),   // Linke Seite (Face 1)
+        CubeColor.BLUE to Rotation(-15f, 120f),     // Rechte Seite (Face 2)
+        CubeColor.YELLOW to Rotation(120f, 0f),     // Untere Seite (Face 3) - stark nach vorne gekippt
 
         // D6 Cube Rotationen
         CubeColor.MAGENTA to Rotation(-90f, 0f),   // Oben
