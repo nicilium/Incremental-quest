@@ -38,6 +38,11 @@
             android:exported="false"
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize" />
+        <activity
+            android:name=".ExtraDiceActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
     </application>
 
 </manifest>

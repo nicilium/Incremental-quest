@@ -63,6 +63,16 @@ object GameState {
     var d20Active = false
         private set
 
+    // Extra Dice System (max 5)
+    private val extraDice = mutableListOf<ExtraDice>()
+    private val maxExtraDice = 5
+
+    // Active Buffs from Extra Dice rolls
+    private var activeCritBuff: CritBuff? = null
+    private var activePassiveBuff: PassiveBuff? = null
+    private var activeEssenceBuff: EssenceBuff? = null
+    private var flatScoreBonusNextClick = 0.0
+
     // Zeit-Tracking für Offline-Klicks
     private var lastActiveTime = 0L
 
@@ -181,6 +191,12 @@ object GameState {
     )
 
     fun onColorClicked(color: CubeColor) {
+        // Update extra dice buffs first
+        updateExtraDiceBuffs()
+
+        // Roll all extra dice and trigger buffs
+        rollExtraDice()
+
         val basePoints = baseColorPoints[color] ?: 0
 
         // Upgrade bonus: simply basePoints × count (Red: +1/level, Green: +2/level, etc.)
@@ -195,6 +211,19 @@ object GameState {
 
         // Total points (as Double because of Divine Essence bonus)
         var totalPoints = (basePoints + upgradeBonus + permanentBonus).toDouble() + essenceBonus
+
+        // Extra Dice: Apply flat score bonus (consumed)
+        if (flatScoreBonusNextClick > 0) {
+            totalPoints += flatScoreBonusNextClick
+            flatScoreBonusNextClick = 0.0
+        }
+
+        // Extra Dice: Apply crit buff
+        activeCritBuff?.let { crit ->
+            if (System.currentTimeMillis() <= crit.endTime) {
+                totalPoints *= crit.multiplier
+            }
+        }
 
         // Buff: Double points
         if (activeBuffType == BuffType.DOUBLE_POINTS && isBuffActive()) {
@@ -549,6 +578,194 @@ object GameState {
         return true
     }
 
+    // ========== Extra Dice System ==========
+
+    // Get current number of extra dice
+    fun getExtraDiceCount(): Int = extraDice.size
+
+    // Get cost for next extra die
+    fun getNextExtraDieCost(): Int {
+        if (extraDice.size >= maxExtraDice) return Int.MAX_VALUE
+
+        if (extraDice.isEmpty()) return 10  // First die costs 10 DE
+
+        // Each die costs +50% more than the previous
+        var cost = 10.0
+        for (i in 1 until extraDice.size + 1) {
+            cost *= 1.5
+        }
+        return kotlin.math.ceil(cost).toInt()
+    }
+
+    fun canAffordNextExtraDice(): Boolean {
+        return extraDice.size < maxExtraDice && divineEssence >= getNextExtraDieCost()
+    }
+
+    fun buyExtraDice(): Boolean {
+        if (!canAffordNextExtraDice()) return false
+
+        val cost = getNextExtraDieCost()
+        divineEssence -= cost
+
+        extraDice.add(ExtraDice(index = extraDice.size))
+        return true
+    }
+
+    // Get all extra dice (read-only)
+    fun getExtraDice(): List<ExtraDice> = extraDice.toList()
+
+    // Get specific extra die
+    fun getExtraDie(index: Int): ExtraDice? {
+        return extraDice.getOrNull(index)
+    }
+
+    // Upgrade specific extra die
+    fun canUpgradeExtraDice(index: Int): Boolean {
+        val die = extraDice.getOrNull(index) ?: return false
+        if (!die.canUpgrade()) return false
+        return divineEssence >= die.getUpgradeCost()
+    }
+
+    fun upgradeExtraDice(index: Int): Boolean {
+        val die = extraDice.getOrNull(index) ?: return false
+        if (!canUpgradeExtraDice(index)) return false
+
+        val cost = die.getUpgradeCost()
+        divineEssence -= cost
+        die.upgrade()
+        return true
+    }
+
+    // Buy/Upgrade buff slot
+    fun canUpgradeBuffSlot(diceIndex: Int, slotType: BuffSlotType): Boolean {
+        val die = extraDice.getOrNull(diceIndex) ?: return false
+        val slot = die.buffSlots.find { it.type == slotType } ?: return false
+
+        // Must be unlocked
+        if (!slot.isUnlocked(die.diceLevel)) return false
+
+        return divineEssence >= slot.getUpgradeCost()
+    }
+
+    fun upgradeBuffSlot(diceIndex: Int, slotType: BuffSlotType): Boolean {
+        val die = extraDice.getOrNull(diceIndex) ?: return false
+        val slot = die.buffSlots.find { it.type == slotType } ?: return false
+
+        if (!canUpgradeBuffSlot(diceIndex, slotType)) return false
+
+        val cost = slot.getUpgradeCost()
+        divineEssence -= cost
+        slot.level++
+        return true
+    }
+
+    // Roll all extra dice and trigger buffs
+    private fun rollExtraDice() {
+        val currentTime = System.currentTimeMillis()
+
+        for (die in extraDice) {
+            val roll = (1..die.diceLevel.faceCount).random()
+
+            // Check each buff slot
+            for (slot in die.buffSlots) {
+                // Skip if not purchased or not unlocked
+                if (!slot.isPurchased() || !slot.isUnlocked(die.diceLevel)) continue
+
+                // Check if this roll triggers this slot
+                if (!slot.type.isTriggeredBy(roll)) continue
+
+                // Trigger the buff
+                when (slot.type) {
+                    BuffSlotType.FLAT_SCORE -> {
+                        // Add flat bonus to next click
+                        val bonus = 10.0 * slot.level  // 10 points per level
+                        flatScoreBonusNextClick += bonus
+                    }
+
+                    BuffSlotType.CRIT_CHANCE -> {
+                        // 5 second crit buff
+                        val multiplier = 1.0 + (0.5 * slot.level)  // +50% per level
+                        activeCritBuff = CritBuff(multiplier, currentTime + 5000)
+                    }
+
+                    BuffSlotType.PASSIVE_POINTS -> {
+                        // 10 second passive points/sec
+                        val pointsPerSec = 5.0 * slot.level  // 5 points/sec per level
+                        activePassiveBuff = PassiveBuff(pointsPerSec, currentTime + 10000)
+                    }
+
+                    BuffSlotType.ESSENCE_MULT -> {
+                        // 10 second essence multiplier
+                        val multiplier = 1.0 + (0.25 * slot.level)  // +25% per level
+                        activeEssenceBuff = EssenceBuff(multiplier, currentTime + 10000)
+                    }
+
+                    BuffSlotType.BUFF_DURATION -> {
+                        // Extend all active buffs by 1s per level
+                        val extension = 1000L * slot.level
+                        activeCritBuff?.let {
+                            activeCritBuff = it.copy(endTime = it.endTime + extension)
+                        }
+                        activePassiveBuff?.let {
+                            activePassiveBuff = it.copy(endTime = it.endTime + extension)
+                        }
+                        activeEssenceBuff?.let {
+                            activeEssenceBuff = it.copy(endTime = it.endTime + extension)
+                        }
+                    }
+
+                    BuffSlotType.MEGA_CRIT -> {
+                        // Instant burst
+                        if (roll == 20) {
+                            // OMNI BOOM - huge burst
+                            val burst = 1000.0 * slot.level
+                            totalScore += burst
+                            lifetimeScore += burst
+                        } else {
+                            // Mini burst (13-19)
+                            val burst = 100.0 * slot.level
+                            totalScore += burst
+                            lifetimeScore += burst
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Update buffs and apply passive effects
+    private fun updateExtraDiceBuffs() {
+        val currentTime = System.currentTimeMillis()
+
+        // Clear expired buffs
+        if (activeCritBuff != null && currentTime > activeCritBuff!!.endTime) {
+            activeCritBuff = null
+        }
+        if (activePassiveBuff != null && currentTime > activePassiveBuff!!.endTime) {
+            activePassiveBuff = null
+        }
+        if (activeEssenceBuff != null && currentTime > activeEssenceBuff!!.endTime) {
+            activeEssenceBuff = null
+        }
+
+        // Apply passive points if active
+        activePassiveBuff?.let { buff ->
+            if (currentTime <= buff.endTime) {
+                // Add points based on time since last update
+                // This is simplified - in production you'd track last update time
+                val pointsToAdd = buff.pointsPerSecond / 60.0  // Approximate per frame
+                totalScore += pointsToAdd
+                lifetimeScore += pointsToAdd
+            }
+        }
+    }
+
+    // Get active buff info for UI
+    fun getActiveCritBuff(): CritBuff? = activeCritBuff
+    fun getActivePassiveBuff(): PassiveBuff? = activePassiveBuff
+    fun getActiveEssenceBuff(): EssenceBuff? = activeEssenceBuff
+    fun getFlatScoreBonus(): Double = flatScoreBonusNextClick
+
     // Calculates the interval in milliseconds based on speed level
     fun getAutoClickerInterval(): Long {
         if (!autoClickerActive) return 1000L
@@ -623,8 +840,15 @@ object GameState {
     }
 
     fun performPrestige(): Boolean {
-        val available = getAvailablePrestigeRewards()
+        var available = getAvailablePrestigeRewards()
         if (available <= 0) return false
+
+        // Apply Essence Multiplier buff if active
+        activeEssenceBuff?.let { buff ->
+            if (System.currentTimeMillis() <= buff.endTime) {
+                available = (available * buff.multiplier).toInt()
+            }
+        }
 
         // Add Divine Essence for all unclaimed levels
         divineEssence += available
@@ -741,6 +965,15 @@ object GameState {
         CubeColor.values().forEach { color ->
             val level = permanentColorUpgrades[color] ?: 0
             editor.putInt("permanentUpgrade_${color.name}", level)
+        }
+
+        // Extra Dice System
+        editor.putInt("extraDiceCount", extraDice.size)
+        extraDice.forEachIndexed { index, die ->
+            editor.putString("extraDice_${index}_level", die.diceLevel.name)
+            die.buffSlots.forEach { slot ->
+                editor.putInt("extraDice_${index}_slot_${slot.type.name}", slot.level)
+            }
         }
 
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
@@ -884,6 +1117,28 @@ object GameState {
             prefs.getInt("buffOffersWithoutPaintCan", 0)  // Keep old key for compatibility
         } catch (e: ClassCastException) {
             prefs.getFloat("buffOffersWithoutPaintCan", 0f).toInt()
+        }
+
+        // Extra Dice System
+        extraDice.clear()
+        val extraDiceCount = prefs.getInt("extraDiceCount", 0)
+        for (i in 0 until extraDiceCount) {
+            val die = ExtraDice(index = i)
+
+            // Load dice level
+            val levelName = prefs.getString("extraDice_${i}_level", "D4")
+            die.diceLevel = try {
+                DiceLevel.valueOf(levelName ?: "D4")
+            } catch (e: IllegalArgumentException) {
+                DiceLevel.D4
+            }
+
+            // Load buff slots
+            die.buffSlots.forEach { slot ->
+                slot.level = prefs.getInt("extraDice_${i}_slot_${slot.type.name}", 0)
+            }
+
+            extraDice.add(die)
         }
     }
 
@@ -1042,3 +1297,91 @@ enum class BuffType {
     FREE_PAINT_CAN,     // 1 kostenlose Lackdose
     RANDOM_UPGRADE      // 1 zufälliges Farb-Upgrade
 }
+
+// Extra Dice System Data Classes
+enum class DiceLevel(val faceCount: Int, val upgradeCost: Int) {
+    D4(4, 0),      // Start level
+    D6(6, 1),
+    D8(8, 4),
+    D10(10, 20),
+    D12(12, 100),
+    D20(20, 500);
+
+    fun next(): DiceLevel? = when(this) {
+        D4 -> D6
+        D6 -> D8
+        D8 -> D10
+        D10 -> D12
+        D12 -> D20
+        D20 -> null
+    }
+}
+
+enum class BuffSlotType(val slotIndex: Int, val triggerRange: IntRange, val unlockedAt: DiceLevel) {
+    FLAT_SCORE(0, 1..4, DiceLevel.D4),          // Next click bonus
+    CRIT_CHANCE(1, 5..6, DiceLevel.D6),          // 5s crit buff
+    PASSIVE_POINTS(2, 7..8, DiceLevel.D8),       // 10s passive/sec
+    ESSENCE_MULT(3, 9..10, DiceLevel.D10),       // 10s essence multiplier
+    BUFF_DURATION(4, 11..12, DiceLevel.D12),     // Extends active buffs
+    MEGA_CRIT(5, 13..20, DiceLevel.D20);         // Burst events (13-19 mini, 20 omni)
+
+    fun isTriggeredBy(roll: Int): Boolean = roll in triggerRange
+}
+
+data class BuffSlot(
+    val type: BuffSlotType,
+    var level: Int = 0  // 0 = not purchased, 1+ = purchased and upgraded
+) {
+    fun isUnlocked(diceLevel: DiceLevel): Boolean {
+        return diceLevel.ordinal >= type.unlockedAt.ordinal
+    }
+
+    fun isPurchased(): Boolean = level > 0
+
+    fun getUpgradeCost(): Int {
+        if (level == 0) return 5  // Initial purchase
+        // Each upgrade: +75% scaling
+        var cost = 5.0
+        for (i in 1..level) {
+            cost *= 1.75
+        }
+        return kotlin.math.ceil(cost).toInt()
+    }
+}
+
+data class ExtraDice(
+    val index: Int,  // 0-based index (0 = first extra die)
+    var diceLevel: DiceLevel = DiceLevel.D4,
+    val buffSlots: MutableList<BuffSlot> = mutableListOf(
+        BuffSlot(BuffSlotType.FLAT_SCORE),
+        BuffSlot(BuffSlotType.CRIT_CHANCE),
+        BuffSlot(BuffSlotType.PASSIVE_POINTS),
+        BuffSlot(BuffSlotType.ESSENCE_MULT),
+        BuffSlot(BuffSlotType.BUFF_DURATION),
+        BuffSlot(BuffSlotType.MEGA_CRIT)
+    )
+) {
+    fun canUpgrade(): Boolean = diceLevel.next() != null
+
+    fun getUpgradeCost(): Int = diceLevel.next()?.upgradeCost ?: 0
+
+    fun upgrade() {
+        diceLevel.next()?.let { diceLevel = it }
+    }
+}
+
+// Active Buff tracking
+data class CritBuff(
+    val multiplier: Double,
+    val endTime: Long
+)
+
+data class PassiveBuff(
+    val pointsPerSecond: Double,
+    val endTime: Long
+)
+
+data class EssenceBuff(
+    val multiplier: Double,
+    val endTime: Long
+)

@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private lateinit var upgradeButton: Button
     private lateinit var prestigeButton: Button
     private lateinit var buffButton: Button
+    private lateinit var extraDiceButton: Button
 
     private val buffCheckHandler = Handler(Looper.getMainLooper())
     private val buffCheckRunnable = object : Runnable {
@@ -215,6 +216,25 @@ class MainActivity : Activity() {
         }
         buttonContainer.addView(buffButton)
 
+        // Extra Dice button (only visible after D20)
+        extraDiceButton = Button(this)
+        extraDiceButton.text = "🎲 EXTRA"
+        extraDiceButton.textSize = 16f
+        extraDiceButton.setBackgroundColor(Color.rgb(100, 50, 200))
+        extraDiceButton.setTextColor(Color.WHITE)
+        val extraDiceParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        extraDiceParams.setMargins(5, 0, 5, 0)
+        extraDiceButton.layoutParams = extraDiceParams
+        extraDiceButton.visibility = View.GONE  // Anfangs unsichtbar
+        extraDiceButton.setOnClickListener {
+            val intent = Intent(this, ExtraDiceActivity::class.java)
+            startActivity(intent)
+        }
+        buttonContainer.addView(extraDiceButton)
+
         layout.addView(buttonContainer)
 
         setContentView(layout)
@@ -263,6 +283,11 @@ class MainActivity : Activity() {
             // Show prestige button at 1000 lifetime points
             if (GameState.lifetimeScore >= 1000) {
                 prestigeButton.visibility = View.VISIBLE
+            }
+
+            // Show extra dice button when D20 is unlocked
+            if (GameState.d20Active) {
+                extraDiceButton.visibility = View.VISIBLE
             }
         }
     }
