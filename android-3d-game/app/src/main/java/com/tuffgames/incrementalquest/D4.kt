@@ -53,18 +53,18 @@ class D4 {
 
         // Farben für die 4 Flächen
         // WICHTIG: Zuordnung basierend auf GameRenderer Rotationen!
-        // RED rotation (-55°, 0°) zeigt Face 3 (Unten) → Rot zuordnen
-        // GREEN rotation (-55°, -120°) zeigt Face 2 (Rechts) → Grün zuordnen
-        // BLUE rotation (-55°, 120°) zeigt Face 1 (Links) → Blau zuordnen
-        // YELLOW rotation (135°, 180°) zeigt Face 0 (Vorne) → Gelb zuordnen
+        // RED rotation (-55°, 0°) zeigt Face 0 (Vorne) → Rot zuordnen
+        // GREEN rotation (-55°, -120°) zeigt Face 2 (Rechts, da Y=-120° rechte Seite nach vorne dreht) → Grün zuordnen
+        // BLUE rotation (-55°, 120°) zeigt Face 1 (Links, da Y=+120° linke Seite nach vorne dreht) → Blau zuordnen
+        // YELLOW rotation (135°, 180°) zeigt Face 3 (Unten) → Gelb zuordnen
 
         val redColor = floatArrayOf(1f, 0f, 0f, 1f)      // Rot = 1 Punkt
         val greenColor = floatArrayOf(0f, 1f, 0f, 1f)    // Grün = 2 Punkte
         val blueColor = floatArrayOf(0f, 0f, 1f, 1f)     // Blau = 3 Punkte
         val yellowColor = floatArrayOf(1f, 1f, 0f, 1f)   // Gelb = 4 Punkte
 
-        // Face 0: Vorne (v0, v1, v2) - GELB (wird bei YELLOW rotation gezeigt)
-        addTriangle(vertices, colors, v0, v1, v2, yellowColor)
+        // Face 0: Vorne (v0, v1, v2) - ROT (wird bei RED rotation gezeigt)
+        addTriangle(vertices, colors, v0, v1, v2, redColor)
 
         // Face 1: Links (v0, v3, v1) - BLAU (wird bei BLUE rotation gezeigt)
         addTriangle(vertices, colors, v0, v3, v1, blueColor)
@@ -72,8 +72,8 @@ class D4 {
         // Face 2: Rechts (v0, v2, v3) - GRÜN (wird bei GREEN rotation gezeigt)
         addTriangle(vertices, colors, v0, v2, v3, greenColor)
 
-        // Face 3: Unten (v1, v3, v2) - ROT (wird bei RED rotation gezeigt)
-        addTriangle(vertices, colors, v1, v3, v2, redColor)
+        // Face 3: Unten (v1, v3, v2) - GELB (wird bei YELLOW rotation gezeigt)
+        addTriangle(vertices, colors, v1, v3, v2, yellowColor)
 
         // Vertex Buffer initialisieren
         val vb = ByteBuffer.allocateDirect(vertices.size * 4)
