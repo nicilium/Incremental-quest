@@ -1,6 +1,7 @@
 package com.tuffgames.incrementalquest
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.opengl.GLSurfaceView
@@ -27,6 +28,7 @@ class MainActivity : Activity() {
     private lateinit var prestigeButton: Button
     private lateinit var buffButton: Button
     private lateinit var extraDiceButton: Button
+    private lateinit var tavernButton: Button
 
     private val buffCheckHandler = Handler(Looper.getMainLooper())
     private val buffCheckRunnable = object : Runnable {
@@ -235,6 +237,36 @@ class MainActivity : Activity() {
         }
         buttonContainer.addView(extraDiceButton)
 
+        // Tavern "?" button (locked until paid, visible after D20)
+        tavernButton = Button(this)
+        tavernButton.textSize = 16f
+        tavernButton.setTextColor(Color.WHITE)
+        val tavernParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        tavernParams.setMargins(5, 0, 5, 0)
+        tavernButton.layoutParams = tavernParams
+        tavernButton.visibility = View.GONE  // Anfangs unsichtbar
+
+        // Update button based on unlock status
+        updateTavernButton()
+
+        tavernButton.setOnClickListener {
+            if (GameState.tavernUnlocked) {
+                // Already unlocked - open tavern
+                val intent = Intent(this, TavernActivity::class.java)
+                startActivity(intent)
+            } else if (GameState.canAffordTavernUnlock()) {
+                // Can afford - show confirmation
+                showTavernUnlockDialog()
+            } else {
+                // Can't afford - show cost
+                showTavernCostDialog()
+            }
+        }
+        buttonContainer.addView(tavernButton)
+
         layout.addView(buttonContainer)
 
         setContentView(layout)
@@ -289,6 +321,12 @@ class MainActivity : Activity() {
             if (GameState.d20Active) {
                 extraDiceButton.visibility = View.VISIBLE
             }
+
+            // Show tavern button when D20 is unlocked
+            if (GameState.d20Active) {
+                tavernButton.visibility = View.VISIBLE
+                updateTavernButton()
+            }
         }
     }
 
@@ -321,6 +359,66 @@ class MainActivity : Activity() {
                 buffIndicatorText.visibility = View.GONE
             }
         }
+    }
+
+    private fun updateTavernButton() {
+        runOnUiThread {
+            if (GameState.tavernUnlocked) {
+                // Unlocked - show as gold/accessible
+                tavernButton.text = "❓"
+                tavernButton.setBackgroundColor(Color.rgb(180, 120, 20))
+            } else {
+                // Locked - show as red mystery
+                tavernButton.text = "🔒 ?"
+                tavernButton.setBackgroundColor(Color.rgb(150, 0, 0))
+            }
+        }
+    }
+
+    private fun showTavernUnlockDialog() {
+        val (deCost, scoreCost) = GameState.getTavernUnlockCost()
+
+        AlertDialog.Builder(this)
+            .setTitle("🍺 Unlock the Tavern?")
+            .setMessage(
+                "Patrick's Tavern awaits!\n\n" +
+                "Cost: ${deCost} Divine Essence\n" +
+                "       ${String.format("%.0f", scoreCost)} Points\n\n" +
+                "A new adventure begins..."
+            )
+            .setPositiveButton("UNLOCK!") { _, _ ->
+                if (GameState.unlockTavern()) {
+                    GameState.saveState(this)
+                    updateTavernButton()
+                    updateScore()
+
+                    // Welcome message
+                    AlertDialog.Builder(this)
+                        .setTitle("🍺 Tavern Unlocked!")
+                        .setMessage("Patrick grins at you from behind the bar.\nTap the ❓ button to enter!")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showTavernCostDialog() {
+        val (deCost, scoreCost) = GameState.getTavernUnlockCost()
+        val currentDE = GameState.divineEssence
+        val currentScore = GameState.totalScore
+
+        AlertDialog.Builder(this)
+            .setTitle("🔒 Tavern Locked")
+            .setMessage(
+                "You need:\n\n" +
+                "Divine Essence: ${currentDE} / ${deCost}\n" +
+                "Points: ${String.format("%.0f", currentScore)} / ${String.format("%.0f", scoreCost)}\n\n" +
+                "Keep clicking and prestiging!"
+            )
+            .setPositiveButton("OK", null)
+            .show()
     }
 
 }
