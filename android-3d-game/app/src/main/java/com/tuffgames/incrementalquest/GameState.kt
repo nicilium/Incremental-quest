@@ -63,6 +63,23 @@ object GameState {
     var d20Active = false
         private set
 
+    // Tavern System (unlocked after D20 + payment)
+    var tavernUnlocked = false
+        private set
+
+    private var tavernUnlockPaid = false
+
+    // Quest System
+    private var currentQuest: String? = null  // null = no active quest
+    var questProgress = 0
+        private set
+
+    // Class System (unlocked after first quest)
+    var selectedClass: PlayerClass? = null
+        private set
+    var classUnlocked = false
+        private set
+
     // Extra Dice System (max 5)
     private val extraDice = mutableListOf<ExtraDice>()
     private val maxExtraDice = 5
@@ -618,6 +635,74 @@ object GameState {
         return true
     }
 
+    // ========== Tavern System ==========
+
+    // Check if tavern can be unlocked (D20 must be active)
+    fun canUnlockTavern(): Boolean {
+        return d20Active && !tavernUnlockPaid
+    }
+
+    // Get cost for unlocking tavern
+    fun getTavernUnlockCost(): Pair<Int, Double> {
+        // Returns (divineEssence, score)
+        return Pair(625, 1_200_000.0)
+    }
+
+    // Check if player can afford tavern unlock
+    fun canAffordTavernUnlock(): Boolean {
+        if (!canUnlockTavern()) return false
+        val (deCost, scoreCost) = getTavernUnlockCost()
+        return divineEssence >= deCost && totalScore >= scoreCost
+    }
+
+    // Unlock the tavern
+    fun unlockTavern(): Boolean {
+        if (!canAffordTavernUnlock()) return false
+
+        val (deCost, scoreCost) = getTavernUnlockCost()
+        divineEssence -= deCost
+        totalScore -= scoreCost
+        tavernUnlockPaid = true
+        tavernUnlocked = true
+
+        // Start first quest: Get second D20
+        currentQuest = "SECOND_D20"
+        questProgress = 0
+
+        return true
+    }
+
+    // Quest functions
+    fun getCurrentQuest(): String? = currentQuest
+
+    fun isQuestActive(questId: String): Boolean = currentQuest == questId
+
+    fun updateQuestProgress(questId: String, progress: Int) {
+        if (currentQuest == questId) {
+            questProgress = progress
+        }
+    }
+
+    fun completeQuest(questId: String) {
+        if (currentQuest == questId) {
+            when (questId) {
+                "SECOND_D20" -> {
+                    // Quest completed: Second D20 bought
+                    classUnlocked = true
+                    currentQuest = null
+                    questProgress = 0
+                }
+            }
+        }
+    }
+
+    // Class system
+    fun selectClass(playerClass: PlayerClass) {
+        if (classUnlocked) {
+            selectedClass = playerClass
+        }
+    }
+
     // ========== Extra Dice System ==========
 
     // Get current number of extra dice
@@ -648,6 +733,12 @@ object GameState {
         divineEssence -= cost
 
         extraDice.add(ExtraDice(index = extraDice.size))
+
+        // Check if quest should be completed
+        if (extraDice.size >= 2 && currentQuest == "SECOND_D20") {
+            completeQuest("SECOND_D20")
+        }
+
         return true
     }
 
@@ -1016,6 +1107,14 @@ object GameState {
             }
         }
 
+        // Tavern System
+        editor.putBoolean("tavernUnlocked", tavernUnlocked)
+        editor.putBoolean("tavernUnlockPaid", tavernUnlockPaid)
+        editor.putString("currentQuest", currentQuest)
+        editor.putInt("questProgress", questProgress)
+        editor.putString("selectedClass", selectedClass?.name)
+        editor.putBoolean("classUnlocked", classUnlocked)
+
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
     }
 
@@ -1180,6 +1279,23 @@ object GameState {
 
             extraDice.add(die)
         }
+
+        // Tavern System
+        tavernUnlocked = prefs.getBoolean("tavernUnlocked", false)
+        tavernUnlockPaid = prefs.getBoolean("tavernUnlockPaid", false)
+        currentQuest = prefs.getString("currentQuest", null)
+        questProgress = prefs.getInt("questProgress", 0)
+        val classNameStr = prefs.getString("selectedClass", null)
+        selectedClass = if (classNameStr != null) {
+            try {
+                PlayerClass.valueOf(classNameStr)
+            } catch (e: IllegalArgumentException) {
+                null
+            }
+        } else {
+            null
+        }
+        classUnlocked = prefs.getBoolean("classUnlocked", false)
 
         // Reset passive points timer to prevent huge point gains on first load
         lastPassivePointsUpdate = System.currentTimeMillis()
@@ -1428,3 +1544,22 @@ data class EssenceBuff(
     val multiplier: Double,
     val endTime: Long
 )
+
+// Player Class System (5 classes)
+enum class PlayerClass(val displayName: String, val description: String, val emoji: String) {
+    WARRIOR("Krieger", "Stark und mutig, schwingt sein Schwert!", "⚔️"),
+    MAGE("Magier", "Meister der arkanen Künste!", "🔮"),
+    ROGUE("Schurke", "Schnell und tödlich aus dem Schatten!", "🗡️"),
+    CLERIC("Kleriker", "Heiler und göttlicher Kämpfer!", "✨"),
+    RANGER("Waldläufer", "Meisterschütze und Naturfreund!", "🏹");
+
+    fun getBonusDescription(): String {
+        return when (this) {
+            WARRIOR -> "+20% auf alle Klicks"
+            MAGE -> "+50% Essence Multiplier"
+            ROGUE -> "+30% Crit Chance von Extra Dice"
+            CLERIC -> "+100% Passive Points/Sec"
+            RANGER -> "Extra Dice kosten 20% weniger"
+        }
+    }
+}
