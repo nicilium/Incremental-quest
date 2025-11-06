@@ -672,25 +672,29 @@ class PrestigeActivity : Activity() {
         levelText.setPadding(0, 10, 0, 5)
         card.addView(levelText)
 
-        // Current Multiplier
+        // Current Click Multiplier (ULTRA EXTREME!)
         val multiplier = GameState.getEssencePowerMultiplier()
         val multiplierText = TextView(this)
-        multiplierText.text = String.format("Multiplier: %.2f%% (×%.4f)", multiplier * 100, multiplier)
-        multiplierText.textSize = 16f
-        multiplierText.setTextColor(Color.rgb(150, 255, 150))
+        multiplierText.text = String.format("Click Multiplier: ×%.2f", multiplier)
+        multiplierText.textSize = 18f
+        multiplierText.setTextColor(Color.rgb(255, 215, 0))
         multiplierText.gravity = Gravity.CENTER
         multiplierText.setPadding(0, 5, 0, 5)
         card.addView(multiplierText)
 
-        // Current Bonus Amount
-        val bonusAmount = GameState.totalDivineEssenceEarned * multiplier
-        val bonusText = TextView(this)
-        bonusText.text = String.format("Bonus: +%.1f points per click", bonusAmount)
-        bonusText.textSize = 14f
-        bonusText.setTextColor(Color.rgb(200, 255, 200))
-        bonusText.gravity = Gravity.CENTER
-        bonusText.setPadding(0, 5, 0, 15)
-        card.addView(bonusText)
+        // Multiplier explanation
+        val explainText = TextView(this)
+        if (GameState.essencePowerLevel == 0) {
+            explainText.text = "All clicks will be multiplied by this value!"
+        } else {
+            val percentBonus = ((multiplier - 1.0) * 100).toInt()
+            explainText.text = "+$percentBonus% bonus on all clicks!"
+        }
+        explainText.textSize = 14f
+        explainText.setTextColor(Color.rgb(200, 255, 200))
+        explainText.gravity = Gravity.CENTER
+        explainText.setPadding(0, 5, 0, 15)
+        card.addView(explainText)
 
         // Next Powerspike Info
         val nextPowerspike = GameState.getNextPowerspikeLevel()
@@ -698,13 +702,13 @@ class PrestigeActivity : Activity() {
             val powerspikeText = TextView(this)
             val levelsToGo = nextPowerspike - GameState.essencePowerLevel
             val powerspikeBonus = when (nextPowerspike) {
-                10 -> "+10%"
-                25 -> "+20%"
-                50 -> "+40%"
-                100 -> "+100%"
+                10 -> "+60%"   // ULTRA EXTREME!
+                25 -> "+80%"   // INSANE!
+                50 -> "+90%"   // GODLIKE!
+                100 -> "+20%"  // LEGENDARY!
                 else -> ""
             }
-            powerspikeText.text = "🔥 Next Powerspike: Level $nextPowerspike ($powerspikeBonus) - $levelsToGo levels to go!"
+            powerspikeText.text = "🔥🔥 POWERSPIKE at Level $nextPowerspike ($powerspikeBonus BOOST!) - $levelsToGo levels to go!"
             powerspikeText.textSize = 14f
             powerspikeText.setTextColor(Color.rgb(255, 150, 50))
             powerspikeText.gravity = Gravity.CENTER
