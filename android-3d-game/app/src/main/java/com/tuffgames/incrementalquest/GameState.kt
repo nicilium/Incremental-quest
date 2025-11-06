@@ -80,6 +80,12 @@ object GameState {
     var classUnlocked = false
         private set
 
+    // RPG System - Character Data
+    private var characterStats: CharacterStats? = null
+    private val equippedItems = mutableMapOf<EquipmentSlot, Equipment>()
+    private val inventory = mutableListOf<Equipment>()  // Unequipped equipment
+    private var characterLoadout = CharacterLoadout()
+
     // Extra Dice System (max 5)
     private val extraDice = mutableListOf<ExtraDice>()
     private val maxExtraDice = 5
@@ -700,8 +706,162 @@ object GameState {
     fun selectClass(playerClass: PlayerClass) {
         if (classUnlocked) {
             selectedClass = playerClass
+
+            // Initialize character with base stats
+            characterStats = CharacterStats(
+                maxHP = playerClass.getBaseHP(),
+                currentHP = playerClass.getBaseHP(),
+                maxMana = playerClass.getBaseMana(),
+                currentMana = playerClass.getBaseMana(),
+                attack = playerClass.getBaseAttack(),
+                defense = playerClass.getBaseDefense(),
+                level = 1,
+                skillPoints = 0,
+                experience = 0
+            )
+
+            // Give starter equipment (Set 1, all GRAU, Tier 1)
+            val sets = playerClass.getAvailableSets()
+            if (sets.isNotEmpty()) {
+                val starterSet = sets[0]  // Set 1 als Starter
+                equippedItems[EquipmentSlot.WEAPON] = Equipment(EquipmentSlot.WEAPON, starterSet)
+                equippedItems[EquipmentSlot.ARMOR] = Equipment(EquipmentSlot.ARMOR, starterSet)
+                equippedItems[EquipmentSlot.ACCESSORY] = Equipment(EquipmentSlot.ACCESSORY, starterSet)
+            }
         }
     }
+
+    // ==================== RPG SYSTEM FUNCTIONS ====================
+
+    // Get character stats (read-only)
+    fun getCharacterStats(): CharacterStats? = characterStats
+
+    // Give experience to character
+    fun giveExperience(amount: Int) {
+        characterStats?.let { stats ->
+            stats.experience += amount
+            while (stats.canLevelUp()) {
+                stats.levelUp()
+            }
+        }
+    }
+
+    // Equipment functions
+    fun getEquippedItem(slot: EquipmentSlot): Equipment? = equippedItems[slot]
+
+    fun getInventory(): List<Equipment> = inventory.toList()
+
+    fun equipItem(equipment: Equipment) {
+        // Unequip current item in slot if exists
+        equippedItems[equipment.slot]?.let { currentItem ->
+            inventory.add(currentItem)
+        }
+        // Equip new item
+        equippedItems[equipment.slot] = equipment
+        inventory.remove(equipment)
+    }
+
+    fun unequipItem(slot: EquipmentSlot) {
+        equippedItems[slot]?.let { item ->
+            inventory.add(item)
+            equippedItems.remove(slot)
+        }
+    }
+
+    fun addItemToInventory(equipment: Equipment) {
+        inventory.add(equipment)
+    }
+
+    // Combine 3 same items to upgrade rarity
+    fun canCombineEquipment(equipment: Equipment): Boolean {
+        if (!equipment.canCombine()) return false
+        val sameItems = inventory.filter {
+            it.slot == equipment.slot &&
+            it.set == equipment.set &&
+            it.rarity == equipment.rarity &&
+            it.tier == equipment.tier
+        }
+        return sameItems.size >= 3
+    }
+
+    fun combineEquipment(equipment: Equipment): Boolean {
+        if (!canCombineEquipment(equipment)) return false
+
+        // Find 3 same items
+        val sameItems = inventory.filter {
+            it.slot == equipment.slot &&
+            it.set == equipment.set &&
+            it.rarity == equipment.rarity &&
+            it.tier == equipment.tier
+        }.take(3)
+
+        if (sameItems.size < 3) return false
+
+        // Remove the 3 items
+        sameItems.forEach { inventory.remove(it) }
+
+        // Create new item with higher rarity
+        val newRarity = equipment.rarity.next() ?: equipment.rarity
+        val newItem = Equipment(
+            slot = equipment.slot,
+            set = equipment.set,
+            rarity = newRarity,
+            tier = equipment.tier
+        )
+        inventory.add(newItem)
+
+        return true
+    }
+
+    // Upgrade equipment tier (costs DE)
+    fun getEquipmentUpgradeCost(equipment: Equipment): Int {
+        if (!equipment.canUpgrade()) return Int.MAX_VALUE
+        val baseCost = 10
+        val rarityMultiplier = when(equipment.rarity) {
+            EquipmentRarity.GRAU -> 1
+            EquipmentRarity.WEISS -> 2
+            EquipmentRarity.GRUEN -> 4
+            EquipmentRarity.BLAU -> 8
+            EquipmentRarity.LILA -> 16
+            EquipmentRarity.GELB -> 32
+        }
+        return baseCost * rarityMultiplier * equipment.tier
+    }
+
+    fun canUpgradeEquipment(equipment: Equipment): Boolean {
+        return equipment.canUpgrade() && divineEssence >= getEquipmentUpgradeCost(equipment)
+    }
+
+    fun upgradeEquipment(equipment: Equipment): Boolean {
+        if (!canUpgradeEquipment(equipment)) return false
+        val cost = getEquipmentUpgradeCost(equipment)
+        divineEssence -= cost
+        equipment.tier++
+        return true
+    }
+
+    // Loadout functions
+    fun getLoadout(): CharacterLoadout = characterLoadout
+
+    fun setLoadoutNormalAbility1(ability: PaladinAbility?) {
+        if (ability == null || ability.isNormal()) {
+            characterLoadout.normalAbility1 = ability
+        }
+    }
+
+    fun setLoadoutNormalAbility2(ability: PaladinAbility?) {
+        if (ability == null || ability.isNormal()) {
+            characterLoadout.normalAbility2 = ability
+        }
+    }
+
+    fun setLoadoutUltimate(ability: PaladinAbility?) {
+        if (ability == null || ability.isUltimate()) {
+            characterLoadout.ultimateAbility = ability
+        }
+    }
+
+    fun isLoadoutComplete(): Boolean = characterLoadout.isComplete()
 
     // ========== Extra Dice System ==========
 
@@ -1115,6 +1275,42 @@ object GameState {
         editor.putString("selectedClass", selectedClass?.name)
         editor.putBoolean("classUnlocked", classUnlocked)
 
+        // RPG System - Character Stats
+        characterStats?.let { stats ->
+            editor.putInt("char_maxHP", stats.maxHP)
+            editor.putInt("char_currentHP", stats.currentHP)
+            editor.putInt("char_maxMana", stats.maxMana)
+            editor.putInt("char_currentMana", stats.currentMana)
+            editor.putInt("char_attack", stats.attack)
+            editor.putInt("char_defense", stats.defense)
+            editor.putInt("char_level", stats.level)
+            editor.putInt("char_skillPoints", stats.skillPoints)
+            editor.putInt("char_experience", stats.experience)
+        }
+
+        // RPG System - Equipped Items
+        EquipmentSlot.values().forEach { slot ->
+            equippedItems[slot]?.let { item ->
+                editor.putString("equipped_${slot.name}_set", item.set.name)
+                editor.putString("equipped_${slot.name}_rarity", item.rarity.name)
+                editor.putInt("equipped_${slot.name}_tier", item.tier)
+            }
+        }
+
+        // RPG System - Inventory
+        editor.putInt("inventory_size", inventory.size)
+        inventory.forEachIndexed { index, item ->
+            editor.putString("inventory_${index}_slot", item.slot.name)
+            editor.putString("inventory_${index}_set", item.set.name)
+            editor.putString("inventory_${index}_rarity", item.rarity.name)
+            editor.putInt("inventory_${index}_tier", item.tier)
+        }
+
+        // RPG System - Loadout
+        editor.putString("loadout_normal1", characterLoadout.normalAbility1?.name)
+        editor.putString("loadout_normal2", characterLoadout.normalAbility2?.name)
+        editor.putString("loadout_ultimate", characterLoadout.ultimateAbility?.name)
+
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
     }
 
@@ -1296,6 +1492,76 @@ object GameState {
             null
         }
         classUnlocked = prefs.getBoolean("classUnlocked", false)
+
+        // RPG System - Character Stats
+        if (prefs.contains("char_level")) {
+            characterStats = CharacterStats(
+                maxHP = prefs.getInt("char_maxHP", 100),
+                currentHP = prefs.getInt("char_currentHP", 100),
+                maxMana = prefs.getInt("char_maxMana", 100),
+                currentMana = prefs.getInt("char_currentMana", 100),
+                attack = prefs.getInt("char_attack", 10),
+                defense = prefs.getInt("char_defense", 10),
+                level = prefs.getInt("char_level", 1),
+                skillPoints = prefs.getInt("char_skillPoints", 0),
+                experience = prefs.getInt("char_experience", 0)
+            )
+        }
+
+        // RPG System - Equipped Items
+        equippedItems.clear()
+        EquipmentSlot.values().forEach { slot ->
+            val setName = prefs.getString("equipped_${slot.name}_set", null)
+            if (setName != null) {
+                try {
+                    val set = EquipmentSet.valueOf(setName)
+                    val rarity = EquipmentRarity.valueOf(
+                        prefs.getString("equipped_${slot.name}_rarity", "GRAU") ?: "GRAU"
+                    )
+                    val tier = prefs.getInt("equipped_${slot.name}_tier", 1)
+                    equippedItems[slot] = Equipment(slot, set, rarity, tier)
+                } catch (e: IllegalArgumentException) {
+                    // Skip invalid equipment
+                }
+            }
+        }
+
+        // RPG System - Inventory
+        inventory.clear()
+        val inventorySize = prefs.getInt("inventory_size", 0)
+        for (i in 0 until inventorySize) {
+            try {
+                val slotName = prefs.getString("inventory_${i}_slot", null) ?: continue
+                val setName = prefs.getString("inventory_${i}_set", null) ?: continue
+                val rarityName = prefs.getString("inventory_${i}_rarity", "GRAU") ?: "GRAU"
+                val tier = prefs.getInt("inventory_${i}_tier", 1)
+
+                val slot = EquipmentSlot.valueOf(slotName)
+                val set = EquipmentSet.valueOf(setName)
+                val rarity = EquipmentRarity.valueOf(rarityName)
+
+                inventory.add(Equipment(slot, set, rarity, tier))
+            } catch (e: IllegalArgumentException) {
+                // Skip invalid item
+            }
+        }
+
+        // RPG System - Loadout
+        val normal1Name = prefs.getString("loadout_normal1", null)
+        val normal2Name = prefs.getString("loadout_normal2", null)
+        val ultimateName = prefs.getString("loadout_ultimate", null)
+
+        characterLoadout = CharacterLoadout(
+            normalAbility1 = normal1Name?.let {
+                try { PaladinAbility.valueOf(it) } catch (e: IllegalArgumentException) { null }
+            },
+            normalAbility2 = normal2Name?.let {
+                try { PaladinAbility.valueOf(it) } catch (e: IllegalArgumentException) { null }
+            },
+            ultimateAbility = ultimateName?.let {
+                try { PaladinAbility.valueOf(it) } catch (e: IllegalArgumentException) { null }
+            }
+        )
 
         // Reset passive points timer to prevent huge point gains on first load
         lastPassivePointsUpdate = System.currentTimeMillis()
@@ -1546,20 +1812,212 @@ data class EssenceBuff(
 )
 
 // Player Class System (5 classes)
-enum class PlayerClass(val displayName: String, val description: String, val emoji: String) {
-    WARRIOR("Krieger", "Stark und mutig, schwingt sein Schwert!", "⚔️"),
-    MAGE("Magier", "Meister der arkanen Künste!", "🔮"),
-    ROGUE("Schurke", "Schnell und tödlich aus dem Schatten!", "🗡️"),
-    CLERIC("Kleriker", "Heiler und göttlicher Kämpfer!", "✨"),
-    RANGER("Waldläufer", "Meisterschütze und Naturfreund!", "🏹");
+// ==================== RPG SYSTEM ====================
 
-    fun getBonusDescription(): String {
-        return when (this) {
-            WARRIOR -> "+20% auf alle Klicks"
-            MAGE -> "+50% Essence Multiplier"
-            ROGUE -> "+30% Crit Chance von Extra Dice"
-            CLERIC -> "+100% Passive Points/Sec"
-            RANGER -> "Extra Dice kosten 20% weniger"
+// Equipment Rarity (kann kombiniert werden: 3x GRAU = 1x WEISS, etc.)
+enum class EquipmentRarity(val displayName: String, val color: Int, val combineCount: Int) {
+    GRAU("Grau", android.graphics.Color.GRAY, 3),
+    WEISS("Weiß", android.graphics.Color.WHITE, 3),
+    GRUEN("Grün", android.graphics.Color.rgb(50, 205, 50), 3),
+    BLAU("Blau", android.graphics.Color.rgb(30, 144, 255), 3),
+    LILA("Lila", android.graphics.Color.rgb(138, 43, 226), 3),
+    GELB("Gelb", android.graphics.Color.rgb(255, 215, 0), 0); // Maximale Rarity
+
+    fun next(): EquipmentRarity? = when(this) {
+        GRAU -> WEISS
+        WEISS -> GRUEN
+        GRUEN -> BLAU
+        BLAU -> LILA
+        LILA -> GELB
+        GELB -> null
+    }
+}
+
+// Equipment Slot
+enum class EquipmentSlot {
+    WEAPON,     // Waffe
+    ARMOR,      // Rüstung
+    ACCESSORY   // Accessoire
+}
+
+// Equipment Set für Klasse
+enum class EquipmentSet(val displayName: String, val description: String) {
+    PALADIN_SET1("Heiliger Beschützer", "Fokus auf Tank/Defense, hohe Rüstung, kann mehr aushalten"),
+    PALADIN_SET2("Lichträcher", "Fokus auf heiligen Schaden, Balance zwischen Tank und Damage"),
+    PALADIN_SET3("Heilung", "Fokus auf Heilung, erhöhte Heilung, kann auch andere heilen");
+}
+
+// Equipment Item
+data class Equipment(
+    val slot: EquipmentSlot,
+    val set: EquipmentSet,
+    var rarity: EquipmentRarity = EquipmentRarity.GRAU,
+    var tier: Int = 1  // Stufe 1-10
+) {
+    fun canUpgrade(): Boolean = tier < 10
+    fun canCombine(): Boolean = rarity != EquipmentRarity.GELB
+
+    fun getStatValue(): Int {
+        // Base value increases with rarity and tier
+        val rarityMultiplier = when(rarity) {
+            EquipmentRarity.GRAU -> 1
+            EquipmentRarity.WEISS -> 2
+            EquipmentRarity.GRUEN -> 4
+            EquipmentRarity.BLAU -> 8
+            EquipmentRarity.LILA -> 16
+            EquipmentRarity.GELB -> 32
         }
+        return tier * rarityMultiplier * 10
+    }
+}
+
+// Ability Type
+enum class AbilityType {
+    COMBAT,  // Rundenbasierter Cooldown
+    SPELL    // Mana-basiert
+}
+
+// Ability Category
+enum class AbilityCategory {
+    NORMAL,   // Normale Fähigkeit (10 verfügbar)
+    ULTIMATE  // Ultimate (3 verfügbar)
+}
+
+// Paladin Abilities
+enum class PaladinAbility(
+    val displayName: String,
+    val description: String,
+    val type: AbilityType,
+    val category: AbilityCategory,
+    val cost: Int,  // Cooldown in Runden (COMBAT) oder Mana (SPELL)
+    val damage: Int = 0,
+    val healing: Int = 0,
+    val duration: Int = 0  // Dauer in Runden für Buffs/Debuffs
+) {
+    // Normale Fähigkeiten - Kampf
+    SCHILDSCHLAG("Schildschlag", "Schlägt mit dem Schild, macht moderaten Schaden + betäubt 1 Runde",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 2, damage = 25, duration = 1),
+
+    VERGELTUNGSSCHLAG("Vergeltungsschlag", "Kontert letzten Schaden und gibt 150% zurück",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 3, damage = 0),
+
+    VERTEIDIGUNGSHALTUNG("Verteidigungshaltung", "Reduziert Schaden um 50% für 2 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 4, duration = 2),
+
+    HEILIGER_HAMMER("Heiliger Hammer", "Schwerer Angriff, hoher Schaden, ignoriert Rüstung",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 3, damage = 50),
+
+    PROVOKATION("Provokation", "Zwingt Gegner dich 2 Runden anzugreifen",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 5, duration = 2),
+
+    // Normale Fähigkeiten - Zauber
+    HEILENDES_LICHT("Heilendes Licht", "Heilt dich oder Verbündeten für mittlere HP",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 30, healing = 40),
+
+    GOETTLICHER_SCHUTZ("Göttlicher Schutz", "Gewährt Schutzschild für 3 Runden",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 40, duration = 3),
+
+    SEGEN_DER_STAERKE("Segen der Stärke", "Erhöht Angriffskraft um 30% für 3 Runden",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 25, duration = 3),
+
+    REINIGUNG("Reinigung", "Entfernt alle negativen Effekte",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 35),
+
+    AURA_DER_RECHTSCHAFFENHEIT("Aura der Rechtschaffenheit", "Heilt dich und Verbündete für 5 HP/Runde, 4 Runden",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 50, healing = 5, duration = 4),
+
+    // Ultimate Fähigkeiten
+    UNERSCHUETTERLICHE_FESTUNG("Unerschütterliche Festung", "Macht dich 4 Runden UNVERWUNDBAR, zieht alle Angriffe, heilt 10% HP/Runde",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 1, duration = 4),
+
+    URTEIL_DES_LICHTS("Urteil des Lichts", "Massiver heiliger AOE-Schaden + heilt Verbündete für 50% des Schadens",
+        AbilityType.SPELL, AbilityCategory.ULTIMATE, 1, damage = 100),
+
+    GOETTLICHE_INTERVENTION("Göttliche Intervention", "Vollheilung aller Verbündeten + entfernt alle Debuffs + Immunität 3 Runden",
+        AbilityType.SPELL, AbilityCategory.ULTIMATE, 1, healing = 999, duration = 3);
+
+    fun isNormal(): Boolean = category == AbilityCategory.NORMAL
+    fun isUltimate(): Boolean = category == AbilityCategory.ULTIMATE
+}
+
+// Player Class
+enum class PlayerClass(
+    val displayName: String,
+    val description: String,
+    val emoji: String
+) {
+    PALADIN("Paladin", "Heiliger Krieger - Tank mit Heilfähigkeiten", "🛡️");
+
+    // Gibt die verfügbaren Sets für diese Klasse zurück
+    fun getAvailableSets(): List<EquipmentSet> = when(this) {
+        PALADIN -> listOf(EquipmentSet.PALADIN_SET1, EquipmentSet.PALADIN_SET2, EquipmentSet.PALADIN_SET3)
+    }
+
+    // Gibt die verfügbaren normalen Fähigkeiten zurück
+    fun getAvailableAbilities(): List<PaladinAbility> = when(this) {
+        PALADIN -> PaladinAbility.values().filter { it.isNormal() }
+    }
+
+    // Gibt die verfügbaren Ultimates zurück
+    fun getAvailableUltimates(): List<PaladinAbility> = when(this) {
+        PALADIN -> PaladinAbility.values().filter { it.isUltimate() }
+    }
+
+    // Base Stats für Klasse
+    fun getBaseHP(): Int = when(this) {
+        PALADIN -> 150  // Hohe HP als Tank
+    }
+
+    fun getBaseMana(): Int = when(this) {
+        PALADIN -> 100  // Moderate Mana
+    }
+
+    fun getBaseAttack(): Int = when(this) {
+        PALADIN -> 20  // Moderate Attack
+    }
+
+    fun getBaseDefense(): Int = when(this) {
+        PALADIN -> 30  // Hohe Defense als Tank
+    }
+}
+
+// Character Stats (wird aus Level, Equipment, Skillpoints berechnet)
+data class CharacterStats(
+    var maxHP: Int = 100,
+    var currentHP: Int = 100,
+    var maxMana: Int = 100,
+    var currentMana: Int = 100,
+    var attack: Int = 10,
+    var defense: Int = 10,
+    var level: Int = 1,
+    var skillPoints: Int = 0,
+    var experience: Int = 0
+) {
+    fun getNextLevelXP(): Int = level * 100  // Simple XP formula
+
+    fun canLevelUp(): Boolean = experience >= getNextLevelXP() && level < 100
+
+    fun levelUp() {
+        if (!canLevelUp()) return
+        experience -= getNextLevelXP()
+        level++
+        skillPoints++
+        // Heal to full on level up
+        currentHP = maxHP
+        currentMana = maxMana
+    }
+}
+
+// Character Loadout (2 normale Fähigkeiten + 1 Ultimate vor Abenteuer gewählt)
+data class CharacterLoadout(
+    var normalAbility1: PaladinAbility? = null,
+    var normalAbility2: PaladinAbility? = null,
+    var ultimateAbility: PaladinAbility? = null
+) {
+    fun isComplete(): Boolean {
+        return normalAbility1 != null &&
+               normalAbility2 != null &&
+               ultimateAbility != null &&
+               normalAbility1 != normalAbility2  // Keine Duplikate
     }
 }

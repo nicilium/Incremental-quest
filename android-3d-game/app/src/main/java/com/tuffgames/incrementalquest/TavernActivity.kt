@@ -237,9 +237,9 @@ Patrick lehnt sich zurück und grinst:
 "Na also! Du hast es geschafft, du Knalltüte!
 Zwei D20... nicht schlecht für einen Anfänger!
 
-Jetzt such dir eine Klasse aus, aber überleg's dir gut!
-Jede hat ihre eigenen Boni, und ich will nicht,
-dass du später rumheulst! 😏"
+Hier, nimm diesen Paladin-Orden! Du bist jetzt ein
+HEILIGER KRIEGER! Ein Tank mit dicken Muskeln und
+göttlicher Magie! Jetzt wird's ernst! 🛡️⚔️"
         """.trimIndent()
         patrickText.textSize = 13f
         patrickText.setTextColor(Color.rgb(200, 200, 200))
@@ -250,40 +250,67 @@ dass du später rumheulst! 😏"
         val currentClass = GameState.selectedClass
         if (currentClass != null) {
             val selectedText = TextView(this)
-            selectedText.text = "Aktuelle Klasse: ${currentClass.emoji} ${currentClass.displayName}"
+            selectedText.text = """
+Aktuelle Klasse: ${currentClass.emoji} ${currentClass.displayName}
+Level: ${GameState.getCharacterStats()?.level ?: 1}
+            """.trimIndent()
             selectedText.textSize = 16f
             selectedText.setTextColor(Color.rgb(100, 255, 100))
             selectedText.gravity = Gravity.CENTER
             selectedText.setPadding(0, 10, 0, 10)
             card.addView(selectedText)
-        }
 
-        // Klassen-Buttons
-        PlayerClass.values().forEach { playerClass ->
-            val classButton = Button(this)
-            classButton.text = "${playerClass.emoji} ${playerClass.displayName}\n${playerClass.description}\n${playerClass.getBonusDescription()}"
-            classButton.textSize = 14f
-            classButton.setBackgroundColor(
-                if (currentClass == playerClass) Color.rgb(50, 150, 50)
-                else Color.rgb(80, 60, 100)
-            )
-            classButton.setTextColor(Color.WHITE)
-            classButton.setPadding(15, 15, 15, 15)
+            // Character Stats anzeigen
+            GameState.getCharacterStats()?.let { stats ->
+                val statsText = TextView(this)
+                statsText.text = """
+🗡️ Attack: ${stats.attack}  🛡️ Defense: ${stats.defense}
+❤️ HP: ${stats.currentHP}/${stats.maxHP}  ✨ Mana: ${stats.currentMana}/${stats.maxMana}
+⭐ Skillpoints: ${stats.skillPoints}
+🎯 EXP: ${stats.experience}/${stats.getNextLevelXP()}
+                """.trimIndent()
+                statsText.textSize = 13f
+                statsText.setTextColor(Color.rgb(255, 215, 0))
+                statsText.gravity = Gravity.CENTER
+                statsText.setPadding(0, 15, 0, 10)
+                card.addView(statsText)
+            }
+        } else {
+            // Paladin-Button (nur beim ersten Mal)
+            val paladinButton = Button(this)
+            paladinButton.text = """
+🛡️ PALADIN WERDEN! ⚔️
+
+Heiliger Krieger - Tank mit Heilfähigkeiten
+
+Base Stats:
+❤️ HP: 150  ✨ Mana: 100
+🗡️ Attack: 20  🛡️ Defense: 30
+
+3 Equipment Sets:
+• Heiliger Beschützer (Tank)
+• Lichträcher (Balance)
+• Heilung (Support)
+            """.trimIndent()
+            paladinButton.textSize = 13f
+            paladinButton.setBackgroundColor(Color.rgb(80, 60, 100))
+            paladinButton.setTextColor(Color.WHITE)
+            paladinButton.setPadding(15, 15, 15, 15)
             val buttonParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
             buttonParams.setMargins(0, 10, 0, 0)
-            classButton.layoutParams = buttonParams
+            paladinButton.layoutParams = buttonParams
 
-            classButton.setOnClickListener {
-                GameState.selectClass(playerClass)
+            paladinButton.setOnClickListener {
+                GameState.selectClass(PlayerClass.PALADIN)
                 GameState.saveState(this)
                 // Refresh UI
                 recreate()
             }
 
-            card.addView(classButton)
+            card.addView(paladinButton)
         }
 
         return card
