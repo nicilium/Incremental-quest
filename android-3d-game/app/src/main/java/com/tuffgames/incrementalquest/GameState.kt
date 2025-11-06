@@ -225,12 +225,12 @@ object GameState {
         val upgradeCount = upgradeCount[color] ?: 0
         val upgradeBonus = basePoints * upgradeCount
 
-        // Divine Essence bonus (multiplicative with level-based scaling):
-        val essenceBonus = calculateEssenceBonus()
+        // Essence Power Multiplier (ULTRA EXTREME POWERSPIKES!)
+        val essencePowerMulti = getEssencePowerClickMultiplier()
 
-        // Total points (as Double because of Divine Essence bonus)
+        // Total points with Essence Power multiplier applied
         // Note: Permanent color upgrades now give passive points/sec instead of flat bonus
-        var totalPoints = (basePoints + upgradeBonus).toDouble() + essenceBonus
+        var totalPoints = (basePoints + upgradeBonus).toDouble() * essencePowerMulti
 
         // Extra Dice: Apply flat score bonus (consumed)
         if (flatScoreBonusNextClick > 0) {
@@ -305,11 +305,11 @@ object GameState {
         val count = upgradeCount[color] ?: 0
         val upgradeBonus = basePoints * count
 
-        // Divine Essence bonus (multiplicative with level-based scaling):
-        val essenceBonus = calculateEssenceBonus()
+        // Essence Power Multiplier (ULTRA EXTREME POWERSPIKES!)
+        val essencePowerMulti = getEssencePowerClickMultiplier()
 
         // Note: Permanent color upgrades now give passive points/sec instead of flat bonus
-        return (basePoints + upgradeBonus + essenceBonus).toInt()
+        return ((basePoints + upgradeBonus).toDouble() * essencePowerMulti).toInt()
     }
 
     // Average click value across all colors
@@ -361,30 +361,30 @@ object GameState {
     // Powerspike levels cost more but grant massive bonuses
 
     // Calculate essence bonus based on level
-    private fun calculateEssenceBonus(): Double {
-        if (essencePowerLevel == 0) {
-            // Base: 1% of total earned essence
-            return totalDivineEssenceEarned * 0.01
-        }
+    // Get Essence Power multiplier for clicks (ULTRA EXTREME POWERSPIKES!)
+    private fun getEssencePowerClickMultiplier(): Double {
+        if (essencePowerLevel == 0) return 1.0
 
-        // Base multiplier: 1%
-        var multiplier = 0.01
+        // Base: +0.5% per level (gedämpft zwischen Powerspikes)
+        var multiplier = 1.0 + (essencePowerLevel * 0.005)
 
-        // Level bonus: level^1.3 × 0.01
-        val levelBonus = essencePowerLevel.toDouble().pow(1.3) * 0.01
-        multiplier += levelBonus
-
-        // Powerspike bonuses (cumulative)
+        // MEGA POWERSPIKE BONI (ULTRA REWARDING!)
+        // These stack cumulatively as you progress
         val powerspikeBonus = when {
-            essencePowerLevel >= 100 -> 1.0  // +100% at level 100
-            essencePowerLevel >= 50 -> 0.4   // +40% at level 50
-            essencePowerLevel >= 25 -> 0.2   // +20% at level 25
-            essencePowerLevel >= 10 -> 0.1   // +10% at level 10
+            essencePowerLevel >= 100 -> 0.60 + 0.80 + 0.90 + 0.20  // All spikes: +250% total = ×4.20!
+            essencePowerLevel >= 50 -> 0.60 + 0.80 + 0.90          // First 3 spikes: +230% = ×3.70!
+            essencePowerLevel >= 25 -> 0.60 + 0.80                 // First 2 spikes: +140% = ×2.53!
+            essencePowerLevel >= 10 -> 0.60                        // First spike: +60% = ×1.65!
             else -> 0.0
         }
         multiplier += powerspikeBonus
 
-        return totalDivineEssenceEarned * multiplier
+        return multiplier
+    }
+
+    // Legacy function - kept for backwards compatibility but no longer adds flat bonus
+    private fun calculateEssenceBonus(): Double {
+        return 0.0  // Essence Power now works as multiplier, not flat bonus
     }
 
     // Calculate cost for next essence power level
@@ -419,22 +419,8 @@ object GameState {
     }
 
     fun getEssencePowerMultiplier(): Double {
-        if (essencePowerLevel == 0) return 0.01  // 1% base
-
-        var multiplier = 0.01
-        val levelBonus = essencePowerLevel.toDouble().pow(1.3) * 0.01
-        multiplier += levelBonus
-
-        val powerspikeBonus = when {
-            essencePowerLevel >= 100 -> 1.0
-            essencePowerLevel >= 50 -> 0.4
-            essencePowerLevel >= 25 -> 0.2
-            essencePowerLevel >= 10 -> 0.1
-            else -> 0.0
-        }
-        multiplier += powerspikeBonus
-
-        return multiplier
+        // Returns the click multiplier from Essence Power (for UI display)
+        return getEssencePowerClickMultiplier()
     }
 
     fun getNextPowerspikeLevel(): Int {
