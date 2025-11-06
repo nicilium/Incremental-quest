@@ -704,31 +704,54 @@ object GameState {
 
     // Class system
     fun selectClass(playerClass: PlayerClass) {
-        if (classUnlocked) {
-            selectedClass = playerClass
+        if (!classUnlocked) return
 
-            // Initialize character with base stats
-            characterStats = CharacterStats(
-                maxHP = playerClass.getBaseHP(),
-                currentHP = playerClass.getBaseHP(),
-                maxMana = playerClass.getBaseMana(),
-                currentMana = playerClass.getBaseMana(),
-                attack = playerClass.getBaseAttack(),
-                defense = playerClass.getBaseDefense(),
-                level = 1,
-                skillPoints = 0,
-                experience = 0
-            )
+        selectedClass = playerClass
 
-            // Give starter equipment (Set 1, all GRAU, Tier 1)
-            val sets = playerClass.getAvailableSets()
-            if (sets.isNotEmpty()) {
-                val starterSet = sets[0]  // Set 1 als Starter
-                equippedItems[EquipmentSlot.WEAPON] = Equipment(EquipmentSlot.WEAPON, starterSet)
-                equippedItems[EquipmentSlot.ARMOR] = Equipment(EquipmentSlot.ARMOR, starterSet)
-                equippedItems[EquipmentSlot.ACCESSORY] = Equipment(EquipmentSlot.ACCESSORY, starterSet)
-            }
+        // Get base D&D attributes for this class
+        val baseAttrs = playerClass.getBaseAttributes()
+
+        // Initialize character stats with D&D 5e system
+        val stats = CharacterStats(
+            strength = baseAttrs[DndAttribute.STRENGTH] ?: 10,
+            dexterity = baseAttrs[DndAttribute.DEXTERITY] ?: 10,
+            constitution = baseAttrs[DndAttribute.CONSTITUTION] ?: 10,
+            intelligence = baseAttrs[DndAttribute.INTELLIGENCE] ?: 10,
+            wisdom = baseAttrs[DndAttribute.WISDOM] ?: 10,
+            charisma = baseAttrs[DndAttribute.CHARISMA] ?: 10,
+            level = 1,
+            experience = 0,
+            maxHP = playerClass.baseHP,
+            currentHP = playerClass.baseHP,
+            maxMana = calculateMaxMana(playerClass, baseAttrs, 1),
+            currentMana = calculateMaxMana(playerClass, baseAttrs, 1),
+            baseAC = 10,
+            armorBonus = 0,
+            initiativeBonus = 0
+        )
+
+        // Add skill proficiencies
+        playerClass.skillProficiencies.forEach { skill ->
+            stats.proficientSkills.add(skill)
         }
+
+        characterStats = stats
+
+        // Give starter equipment (Set 1, all GRAU, Tier 1)
+        val sets = playerClass.getAvailableSets()
+        if (sets.isNotEmpty()) {
+            val starterSet = sets[0]  // Set 1 als Starter
+            equippedItems[EquipmentSlot.WEAPON] = Equipment(EquipmentSlot.WEAPON, starterSet)
+            equippedItems[EquipmentSlot.ARMOR] = Equipment(EquipmentSlot.ARMOR, starterSet)
+            equippedItems[EquipmentSlot.ACCESSORY] = Equipment(EquipmentSlot.ACCESSORY, starterSet)
+        }
+    }
+
+    // Calculate max mana based on casting stat and level
+    private fun calculateMaxMana(playerClass: PlayerClass, attrs: Map<DndAttribute, Int>, level: Int): Int {
+        val castingStat = playerClass.castingStat ?: return 0  // Barbar hat keine Magie
+        val modifier = DndAttribute.getModifier(attrs[castingStat] ?: 10)
+        return (modifier * level * 5).coerceAtLeast(0)
     }
 
     // ==================== RPG SYSTEM FUNCTIONS ====================
@@ -738,10 +761,11 @@ object GameState {
 
     // Give experience to character
     fun giveExperience(amount: Int) {
+        val playerClass = selectedClass ?: return
         characterStats?.let { stats ->
             stats.experience += amount
             while (stats.canLevelUp()) {
-                stats.levelUp()
+                stats.levelUp(playerClass)
             }
         }
     }
@@ -1275,17 +1299,37 @@ object GameState {
         editor.putString("selectedClass", selectedClass?.name)
         editor.putBoolean("classUnlocked", classUnlocked)
 
-        // RPG System - Character Stats
+        // RPG System - Character Stats (D&D 5e)
         characterStats?.let { stats ->
+            // D&D Attributes
+            editor.putInt("char_strength", stats.strength)
+            editor.putInt("char_dexterity", stats.dexterity)
+            editor.putInt("char_constitution", stats.constitution)
+            editor.putInt("char_intelligence", stats.intelligence)
+            editor.putInt("char_wisdom", stats.wisdom)
+            editor.putInt("char_charisma", stats.charisma)
+
+            // Level & XP
+            editor.putInt("char_level", stats.level)
+            editor.putInt("char_experience", stats.experience)
+
+            // HP
             editor.putInt("char_maxHP", stats.maxHP)
             editor.putInt("char_currentHP", stats.currentHP)
+            editor.putInt("char_temporaryHP", stats.temporaryHP)
+
+            // Mana
             editor.putInt("char_maxMana", stats.maxMana)
             editor.putInt("char_currentMana", stats.currentMana)
-            editor.putInt("char_attack", stats.attack)
-            editor.putInt("char_defense", stats.defense)
-            editor.putInt("char_level", stats.level)
-            editor.putInt("char_skillPoints", stats.skillPoints)
-            editor.putInt("char_experience", stats.experience)
+
+            // AC & Initiative
+            editor.putInt("char_baseAC", stats.baseAC)
+            editor.putInt("char_armorBonus", stats.armorBonus)
+            editor.putInt("char_initiativeBonus", stats.initiativeBonus)
+
+            // Proficient Skills (als komma-separierter String)
+            val skillsString = stats.proficientSkills.joinToString(",") { it.name }
+            editor.putString("char_proficientSkills", skillsString)
         }
 
         // RPG System - Equipped Items
@@ -1493,19 +1537,50 @@ object GameState {
         }
         classUnlocked = prefs.getBoolean("classUnlocked", false)
 
-        // RPG System - Character Stats
+        // RPG System - Character Stats (D&D 5e)
         if (prefs.contains("char_level")) {
-            characterStats = CharacterStats(
-                maxHP = prefs.getInt("char_maxHP", 100),
-                currentHP = prefs.getInt("char_currentHP", 100),
-                maxMana = prefs.getInt("char_maxMana", 100),
-                currentMana = prefs.getInt("char_currentMana", 100),
-                attack = prefs.getInt("char_attack", 10),
-                defense = prefs.getInt("char_defense", 10),
+            val stats = CharacterStats(
+                // D&D Attributes
+                strength = prefs.getInt("char_strength", 10),
+                dexterity = prefs.getInt("char_dexterity", 10),
+                constitution = prefs.getInt("char_constitution", 10),
+                intelligence = prefs.getInt("char_intelligence", 10),
+                wisdom = prefs.getInt("char_wisdom", 10),
+                charisma = prefs.getInt("char_charisma", 10),
+
+                // Level & XP
                 level = prefs.getInt("char_level", 1),
-                skillPoints = prefs.getInt("char_skillPoints", 0),
-                experience = prefs.getInt("char_experience", 0)
+                experience = prefs.getInt("char_experience", 0),
+
+                // HP
+                maxHP = prefs.getInt("char_maxHP", 10),
+                currentHP = prefs.getInt("char_currentHP", 10),
+                temporaryHP = prefs.getInt("char_temporaryHP", 0),
+
+                // Mana
+                maxMana = prefs.getInt("char_maxMana", 0),
+                currentMana = prefs.getInt("char_currentMana", 0),
+
+                // AC & Initiative
+                baseAC = prefs.getInt("char_baseAC", 10),
+                armorBonus = prefs.getInt("char_armorBonus", 0),
+                initiativeBonus = prefs.getInt("char_initiativeBonus", 0)
             )
+
+            // Load proficient skills
+            val skillsString = prefs.getString("char_proficientSkills", "")
+            if (!skillsString.isNullOrEmpty()) {
+                skillsString.split(",").forEach { skillName ->
+                    try {
+                        val skill = DndSkill.valueOf(skillName)
+                        stats.proficientSkills.add(skill)
+                    } catch (e: IllegalArgumentException) {
+                        // Skip invalid skill
+                    }
+                }
+            }
+
+            characterStats = stats
         }
 
         // RPG System - Equipped Items
@@ -1940,71 +2015,352 @@ enum class PaladinAbility(
     fun isUltimate(): Boolean = category == AbilityCategory.ULTIMATE
 }
 
-// Player Class
+// ==================== D&D 5E SYSTEM ====================
+
+// D&D Attributes
+enum class DndAttribute(val displayName: String, val shortName: String) {
+    STRENGTH("Strength", "STR"),      // Nahkampfschaden, Tragkraft
+    DEXTERITY("Dexterity", "DEX"),    // Fernkampf, Ausweichen, Initiative, AC
+    CONSTITUTION("Constitution", "CON"), // HP, Ausdauer
+    INTELLIGENCE("Intelligence", "INT"), // Magier-Zauber, Wissen
+    WISDOM("Wisdom", "WIS"),          // Priester/Ranger-Zauber, Wahrnehmung
+    CHARISMA("Charisma", "CHA");      // Paladin-Zauber, Überzeugung
+
+    companion object {
+        // Berechne Modifier aus Attribut-Wert (D&D 5e Formel)
+        fun getModifier(score: Int): Int = (score - 10) / 2
+    }
+}
+
+// Hit Dice für Klassen (D&D 5e)
+enum class HitDice(val sides: Int, val displayName: String) {
+    D6(6, "d6"),    // Magier - Glaskanone
+    D8(8, "d8"),    // Priester, Jäger
+    D10(10, "d10"), // Paladin
+    D12(12, "d12"); // Barbar - Tank
+
+    fun roll(): Int = (1..sides).random()
+    fun average(): Int = (sides / 2) + 1
+}
+
+// D&D Skills
+enum class DndSkill(
+    val displayName: String,
+    val attribute: DndAttribute
+) {
+    ATHLETICS("Athletics", DndAttribute.STRENGTH),
+    ACROBATICS("Acrobatics", DndAttribute.DEXTERITY),
+    SLEIGHT_OF_HAND("Sleight of Hand", DndAttribute.DEXTERITY),
+    STEALTH("Stealth", DndAttribute.DEXTERITY),
+    ARCANA("Arcana", DndAttribute.INTELLIGENCE),
+    HISTORY("History", DndAttribute.INTELLIGENCE),
+    INVESTIGATION("Investigation", DndAttribute.INTELLIGENCE),
+    NATURE("Nature", DndAttribute.INTELLIGENCE),
+    RELIGION("Religion", DndAttribute.INTELLIGENCE),
+    ANIMAL_HANDLING("Animal Handling", DndAttribute.WISDOM),
+    INSIGHT("Insight", DndAttribute.WISDOM),
+    MEDICINE("Medicine", DndAttribute.WISDOM),
+    PERCEPTION("Perception", DndAttribute.WISDOM),
+    SURVIVAL("Survival", DndAttribute.WISDOM),
+    DECEPTION("Deception", DndAttribute.CHARISMA),
+    INTIMIDATION("Intimidation", DndAttribute.CHARISMA),
+    PERFORMANCE("Performance", DndAttribute.CHARISMA),
+    PERSUASION("Persuasion", DndAttribute.CHARISMA);
+}
+
+// Player Class (D&D 5e)
 enum class PlayerClass(
     val displayName: String,
     val description: String,
-    val emoji: String
+    val emoji: String,
+    val hitDice: HitDice,
+    val baseHP: Int, // Level 1 HP
+    val castingStat: DndAttribute?, // Welches Attribut für Zauber (null = keine Magie)
+    val savingThrowProficiencies: List<DndAttribute>,
+    val skillProficiencies: List<DndSkill>
 ) {
-    PALADIN("Paladin", "Heiliger Krieger - Tank mit Heilfähigkeiten", "🛡️");
+    PALADIN(
+        "Paladin",
+        "Heiliger Krieger - Tank mit Heilmagie",
+        "🛡️",
+        HitDice.D10,
+        12, // 10 + CON-Mod (+2)
+        DndAttribute.CHARISMA, // Paladin nutzt CHA für Zauber!
+        listOf(DndAttribute.WISDOM, DndAttribute.CHARISMA),
+        listOf(DndSkill.ATHLETICS, DndSkill.RELIGION, DndSkill.PERSUASION)
+    ),
+
+    BARBAR(
+        "Barbar",
+        "Berserker - Brutale DPS, KEINE Magie!",
+        "⚔️",
+        HitDice.D12,
+        15, // 12 + CON-Mod (+3)
+        null, // KEINE MAGIE!
+        listOf(DndAttribute.STRENGTH, DndAttribute.CONSTITUTION),
+        listOf(DndSkill.ATHLETICS, DndSkill.INTIMIDATION, DndSkill.SURVIVAL)
+    ),
+
+    JAEGER(
+        "Jäger",
+        "Ranger - Mobiler Fernkämpfer mit Naturmagie",
+        "🏹",
+        HitDice.D10,
+        12, // 10 + CON-Mod (+2)
+        DndAttribute.WISDOM, // Jäger nutzt WIS für Naturmagie
+        listOf(DndAttribute.STRENGTH, DndAttribute.DEXTERITY),
+        listOf(DndSkill.STEALTH, DndSkill.SURVIVAL, DndSkill.PERCEPTION, DndSkill.NATURE)
+    ),
+
+    MAGIER(
+        "Magier",
+        "Wizard - Glaskanone mit mächtiger Magie",
+        "🔮",
+        HitDice.D6,
+        6, // 6 + CON-Mod (+0)
+        DndAttribute.INTELLIGENCE, // Magier nutzt INT
+        listOf(DndAttribute.INTELLIGENCE, DndAttribute.WISDOM),
+        listOf(DndSkill.ARCANA, DndSkill.HISTORY, DndSkill.INVESTIGATION)
+    ),
+
+    PRIESTER(
+        "Priester",
+        "Cleric - Heiler mit göttlicher Magie",
+        "✨",
+        HitDice.D8,
+        10, // 8 + CON-Mod (+2)
+        DndAttribute.WISDOM, // Priester nutzt WIS
+        listOf(DndAttribute.WISDOM, DndAttribute.CHARISMA),
+        listOf(DndSkill.MEDICINE, DndSkill.RELIGION, DndSkill.INSIGHT)
+    );
+
+    // D&D 5e Base Attributes für diese Klasse
+    fun getBaseAttributes(): Map<DndAttribute, Int> = when(this) {
+        PALADIN -> mapOf(
+            DndAttribute.STRENGTH to 16,
+            DndAttribute.DEXTERITY to 10,
+            DndAttribute.CONSTITUTION to 14,
+            DndAttribute.INTELLIGENCE to 8,
+            DndAttribute.WISDOM to 12,
+            DndAttribute.CHARISMA to 16
+        )
+        BARBAR -> mapOf(
+            DndAttribute.STRENGTH to 18,
+            DndAttribute.DEXTERITY to 14,
+            DndAttribute.CONSTITUTION to 16,
+            DndAttribute.INTELLIGENCE to 6,
+            DndAttribute.WISDOM to 8,
+            DndAttribute.CHARISMA to 10
+        )
+        JAEGER -> mapOf(
+            DndAttribute.STRENGTH to 12,
+            DndAttribute.DEXTERITY to 18,
+            DndAttribute.CONSTITUTION to 14,
+            DndAttribute.INTELLIGENCE to 10,
+            DndAttribute.WISDOM to 16,
+            DndAttribute.CHARISMA to 8
+        )
+        MAGIER -> mapOf(
+            DndAttribute.STRENGTH to 8,
+            DndAttribute.DEXTERITY to 14,
+            DndAttribute.CONSTITUTION to 10,
+            DndAttribute.INTELLIGENCE to 18,
+            DndAttribute.WISDOM to 12,
+            DndAttribute.CHARISMA to 10
+        )
+        PRIESTER -> mapOf(
+            DndAttribute.STRENGTH to 10,
+            DndAttribute.DEXTERITY to 10,
+            DndAttribute.CONSTITUTION to 14,
+            DndAttribute.INTELLIGENCE to 12,
+            DndAttribute.WISDOM to 18,
+            DndAttribute.CHARISMA to 14
+        )
+    }
 
     // Gibt die verfügbaren Sets für diese Klasse zurück
     fun getAvailableSets(): List<EquipmentSet> = when(this) {
         PALADIN -> listOf(EquipmentSet.PALADIN_SET1, EquipmentSet.PALADIN_SET2, EquipmentSet.PALADIN_SET3)
+        else -> emptyList() // Andere Klassen haben noch keine Sets
     }
 
     // Gibt die verfügbaren normalen Fähigkeiten zurück
     fun getAvailableAbilities(): List<PaladinAbility> = when(this) {
         PALADIN -> PaladinAbility.values().filter { it.isNormal() }
+        else -> emptyList()
     }
 
     // Gibt die verfügbaren Ultimates zurück
     fun getAvailableUltimates(): List<PaladinAbility> = when(this) {
         PALADIN -> PaladinAbility.values().filter { it.isUltimate() }
+        else -> emptyList()
     }
 
-    // Base Stats für Klasse
-    fun getBaseHP(): Int = when(this) {
-        PALADIN -> 150  // Hohe HP als Tank
-    }
-
-    fun getBaseMana(): Int = when(this) {
-        PALADIN -> 100  // Moderate Mana
-    }
-
-    fun getBaseAttack(): Int = when(this) {
-        PALADIN -> 20  // Moderate Attack
-    }
-
-    fun getBaseDefense(): Int = when(this) {
-        PALADIN -> 30  // Hohe Defense als Tank
+    // Berechne Proficiency Bonus basierend auf Level (D&D 5e)
+    fun getProficiencyBonus(level: Int): Int = when {
+        level <= 4 -> 2
+        level <= 8 -> 3
+        level <= 12 -> 4
+        level <= 16 -> 5
+        else -> 6
     }
 }
 
-// Character Stats (wird aus Level, Equipment, Skillpoints berechnet)
+// Character Stats (D&D 5e vollständig)
 data class CharacterStats(
-    var maxHP: Int = 100,
-    var currentHP: Int = 100,
-    var maxMana: Int = 100,
-    var currentMana: Int = 100,
-    var attack: Int = 10,
-    var defense: Int = 10,
+    // D&D Attribute (8-20)
+    var strength: Int = 10,
+    var dexterity: Int = 10,
+    var constitution: Int = 10,
+    var intelligence: Int = 10,
+    var wisdom: Int = 10,
+    var charisma: Int = 10,
+
+    // Level & XP
     var level: Int = 1,
-    var skillPoints: Int = 0,
-    var experience: Int = 0
+    var experience: Int = 0,
+
+    // HP
+    var maxHP: Int = 10,
+    var currentHP: Int = 10,
+    var temporaryHP: Int = 0, // Temp HP (D&D Mechanik)
+
+    // Mana (vereinfacht, nicht Standard D&D aber für unser Spiel)
+    var maxMana: Int = 0,
+    var currentMana: Int = 0,
+
+    // Armor Class (10 + DEX-Mod + Rüstung)
+    var baseAC: Int = 10,
+    var armorBonus: Int = 0,
+
+    // Initiative
+    var initiativeBonus: Int = 0,
+
+    // Proficient Skills
+    val proficientSkills: MutableSet<DndSkill> = mutableSetOf()
 ) {
-    fun getNextLevelXP(): Int = level * 100  // Simple XP formula
+    // Get attribute value
+    fun getAttribute(attr: DndAttribute): Int = when(attr) {
+        DndAttribute.STRENGTH -> strength
+        DndAttribute.DEXTERITY -> dexterity
+        DndAttribute.CONSTITUTION -> constitution
+        DndAttribute.INTELLIGENCE -> intelligence
+        DndAttribute.WISDOM -> wisdom
+        DndAttribute.CHARISMA -> charisma
+    }
 
-    fun canLevelUp(): Boolean = experience >= getNextLevelXP() && level < 100
+    // Set attribute value
+    fun setAttribute(attr: DndAttribute, value: Int) {
+        when(attr) {
+            DndAttribute.STRENGTH -> strength = value
+            DndAttribute.DEXTERITY -> dexterity = value
+            DndAttribute.CONSTITUTION -> constitution = value
+            DndAttribute.INTELLIGENCE -> intelligence = value
+            DndAttribute.WISDOM -> wisdom = value
+            DndAttribute.CHARISMA -> charisma = value
+        }
+    }
 
-    fun levelUp() {
+    // Get modifier for attribute (D&D 5e)
+    fun getModifier(attr: DndAttribute): Int = DndAttribute.getModifier(getAttribute(attr))
+
+    // Calculate Proficiency Bonus based on level
+    fun getProficiencyBonus(): Int = when {
+        level <= 4 -> 2
+        level <= 8 -> 3
+        level <= 12 -> 4
+        level <= 16 -> 5
+        else -> 6
+    }
+
+    // Calculate Armor Class
+    fun getArmorClass(): Int = baseAC + getModifier(DndAttribute.DEXTERITY) + armorBonus
+
+    // Calculate Initiative
+    fun getInitiative(): Int = getModifier(DndAttribute.DEXTERITY) + initiativeBonus
+
+    // Skill Check (d20 + modifier + proficiency if proficient)
+    fun getSkillBonus(skill: DndSkill): Int {
+        var bonus = getModifier(skill.attribute)
+        if (skill in proficientSkills) {
+            bonus += getProficiencyBonus()
+        }
+        return bonus
+    }
+
+    // Saving Throw (d20 + modifier + proficiency if proficient)
+    fun getSavingThrowBonus(attr: DndAttribute, proficiencies: List<DndAttribute>): Int {
+        var bonus = getModifier(attr)
+        if (attr in proficiencies) {
+            bonus += getProficiencyBonus()
+        }
+        return bonus
+    }
+
+    // XP needed for next level (D&D 5e progression)
+    fun getNextLevelXP(): Int {
+        val xpTable = listOf(
+            0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000,
+            85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000
+        )
+        return if (level < 20) xpTable[level] else 999999
+    }
+
+    fun canLevelUp(): Boolean = experience >= getNextLevelXP() && level < 20
+
+    fun levelUp(playerClass: PlayerClass) {
         if (!canLevelUp()) return
-        experience -= getNextLevelXP()
+
         level++
-        skillPoints++
+
+        // Roll Hit Dice (oder nehme Durchschnitt) und addiere CON-Mod
+        val hpGain = playerClass.hitDice.average() + getModifier(DndAttribute.CONSTITUTION)
+        maxHP += hpGain.coerceAtLeast(1)
+
         // Heal to full on level up
         currentHP = maxHP
         currentMana = maxMana
+    }
+
+    // Take damage (berücksichtigt Temp HP)
+    fun takeDamage(damage: Int): Int {
+        var remainingDamage = damage
+
+        // Temp HP absorbiert Schaden zuerst
+        if (temporaryHP > 0) {
+            if (temporaryHP >= remainingDamage) {
+                temporaryHP -= remainingDamage
+                return 0
+            } else {
+                remainingDamage -= temporaryHP
+                temporaryHP = 0
+            }
+        }
+
+        // Rest geht auf normale HP
+        currentHP -= remainingDamage
+        if (currentHP < 0) currentHP = 0
+
+        return remainingDamage
+    }
+
+    // Heal
+    fun heal(amount: Int) {
+        currentHP = (currentHP + amount).coerceAtMost(maxHP)
+    }
+
+    // Rest (Short Rest in D&D)
+    fun shortRest(playerClass: PlayerClass): Int {
+        val healing = playerClass.hitDice.roll() + getModifier(DndAttribute.CONSTITUTION)
+        heal(healing)
+        return healing
+    }
+
+    // Long Rest
+    fun longRest() {
+        currentHP = maxHP
+        currentMana = maxMana
+        temporaryHP = 0
     }
 }
 

@@ -260,20 +260,48 @@ Level: ${GameState.getCharacterStats()?.level ?: 1}
             selectedText.setPadding(0, 10, 0, 10)
             card.addView(selectedText)
 
-            // Character Stats anzeigen
+            // Character Stats anzeigen (D&D 5e)
             GameState.getCharacterStats()?.let { stats ->
-                val statsText = TextView(this)
-                statsText.text = """
-🗡️ Attack: ${stats.attack}  🛡️ Defense: ${stats.defense}
-❤️ HP: ${stats.currentHP}/${stats.maxHP}  ✨ Mana: ${stats.currentMana}/${stats.maxMana}
-⭐ Skillpoints: ${stats.skillPoints}
-🎯 EXP: ${stats.experience}/${stats.getNextLevelXP()}
+                // D&D Attributes mit Modifiers
+                val attributesText = TextView(this)
+                attributesText.text = """
+D&D ATTRIBUTE:
+💪 STR: ${stats.strength} (${formatModifier(stats.getModifier(DndAttribute.STRENGTH))})
+🤸 DEX: ${stats.dexterity} (${formatModifier(stats.getModifier(DndAttribute.DEXTERITY))})
+💚 CON: ${stats.constitution} (${formatModifier(stats.getModifier(DndAttribute.CONSTITUTION))})
+📚 INT: ${stats.intelligence} (${formatModifier(stats.getModifier(DndAttribute.INTELLIGENCE))})
+🧠 WIS: ${stats.wisdom} (${formatModifier(stats.getModifier(DndAttribute.WISDOM))})
+✨ CHA: ${stats.charisma} (${formatModifier(stats.getModifier(DndAttribute.CHARISMA))})
                 """.trimIndent()
-                statsText.textSize = 13f
-                statsText.setTextColor(Color.rgb(255, 215, 0))
-                statsText.gravity = Gravity.CENTER
-                statsText.setPadding(0, 15, 0, 10)
-                card.addView(statsText)
+                attributesText.textSize = 12f
+                attributesText.setTextColor(Color.rgb(255, 215, 0))
+                attributesText.gravity = Gravity.START
+                attributesText.setPadding(20, 15, 10, 5)
+                card.addView(attributesText)
+
+                // Combat Stats
+                val combatStatsText = TextView(this)
+                combatStatsText.text = """
+❤️ HP: ${stats.currentHP}/${stats.maxHP}${if (stats.temporaryHP > 0) " (+${stats.temporaryHP} temp)" else ""}
+✨ Mana: ${stats.currentMana}/${stats.maxMana}
+🛡️ AC: ${stats.getArmorClass()}
+⚡ Initiative: ${formatModifier(stats.getInitiative())}
+🎯 Proficiency: +${stats.getProficiencyBonus()}
+                """.trimIndent()
+                combatStatsText.textSize = 12f
+                combatStatsText.setTextColor(Color.rgb(100, 255, 100))
+                combatStatsText.gravity = Gravity.START
+                combatStatsText.setPadding(20, 5, 10, 5)
+                card.addView(combatStatsText)
+
+                // XP Progress
+                val xpText = TextView(this)
+                xpText.text = "📊 EXP: ${stats.experience} / ${stats.getNextLevelXP()}"
+                xpText.textSize = 12f
+                xpText.setTextColor(Color.rgb(200, 200, 255))
+                xpText.gravity = Gravity.CENTER
+                xpText.setPadding(0, 5, 0, 10)
+                card.addView(xpText)
             }
         } else {
             // Paladin-Button (nur beim ersten Mal)
@@ -281,11 +309,14 @@ Level: ${GameState.getCharacterStats()?.level ?: 1}
             paladinButton.text = """
 🛡️ PALADIN WERDEN! ⚔️
 
-Heiliger Krieger - Tank mit Heilfähigkeiten
+Heiliger Krieger - Tank mit Heilmagie
 
-Base Stats:
-❤️ HP: 150  ✨ Mana: 100
-🗡️ Attack: 20  🛡️ Defense: 30
+D&D Stats (Level 1):
+💪 STR 16 (+3)  🤸 DEX 10 (+0)  💚 CON 14 (+2)
+📚 INT 8 (-1)   🧠 WIS 12 (+1)  ✨ CHA 16 (+3)
+
+❤️ HP: 12 (d10)  🛡️ AC: 10  ✨ Mana: 15 (CHA)
+Hit Dice: d10  |  Casting Stat: Charisma
 
 3 Equipment Sets:
 • Heiliger Beschützer (Tank)
@@ -314,5 +345,10 @@ Base Stats:
         }
 
         return card
+    }
+
+    // Helper function to format D&D modifiers
+    private fun formatModifier(modifier: Int): String {
+        return if (modifier >= 0) "+$modifier" else "$modifier"
     }
 }
