@@ -867,25 +867,47 @@ object GameState {
     // Loadout functions
     fun getLoadout(): CharacterLoadout = characterLoadout
 
-    fun setLoadoutNormalAbility1(ability: PaladinAbility?) {
-        if (ability == null || ability.isNormal()) {
-            characterLoadout.normalAbility1 = ability
-        }
+    // Set normale Fähigkeit an Slot (0-4)
+    fun setLoadoutNormalAbility(index: Int, ability: PaladinAbility?): Boolean {
+        val level = characterStats?.level ?: 1
+        return characterLoadout.setNormalAbility(index, ability, level)
     }
 
-    fun setLoadoutNormalAbility2(ability: PaladinAbility?) {
-        if (ability == null || ability.isNormal()) {
-            characterLoadout.normalAbility2 = ability
-        }
+    // Set Ultimate
+    fun setLoadoutUltimate(ability: PaladinAbility?): Boolean {
+        val level = characterStats?.level ?: 1
+        if (!characterLoadout.hasUltimateSlot(level)) return false
+        if (ability != null && !ability.isUltimate()) return false
+
+        characterLoadout.ultimateAbility = ability
+        return true
     }
 
-    fun setLoadoutUltimate(ability: PaladinAbility?) {
-        if (ability == null || ability.isUltimate()) {
-            characterLoadout.ultimateAbility = ability
-        }
+    // Check ob Loadout komplett ist
+    fun isLoadoutComplete(): Boolean {
+        val level = characterStats?.level ?: 1
+        return characterLoadout.isComplete(level)
     }
 
-    fun isLoadoutComplete(): Boolean = characterLoadout.isComplete()
+    // Get verfügbare normale Slots basierend auf Level
+    fun getMaxNormalAbilitySlots(): Int {
+        val level = characterStats?.level ?: 1
+        return characterLoadout.getMaxNormalSlots(level)
+    }
+
+    // Get alle freigeschalteten Fähigkeiten
+    fun getUnlockedAbilities(): List<PaladinAbility> {
+        val level = characterStats?.level ?: 1
+        val playerClass = selectedClass ?: return emptyList()
+        return playerClass.getAvailableAbilities().filter { it.isUnlockedAt(level) }
+    }
+
+    // Get alle freigeschalteten Ultimates
+    fun getUnlockedUltimates(): List<PaladinAbility> {
+        val level = characterStats?.level ?: 1
+        val playerClass = selectedClass ?: return emptyList()
+        return playerClass.getAvailableUltimates().filter { it.isUnlockedAt(level) }
+    }
 
     // ========== Extra Dice System ==========
 
@@ -1350,9 +1372,10 @@ object GameState {
             editor.putInt("inventory_${index}_tier", item.tier)
         }
 
-        // RPG System - Loadout
-        editor.putString("loadout_normal1", characterLoadout.normalAbility1?.name)
-        editor.putString("loadout_normal2", characterLoadout.normalAbility2?.name)
+        // RPG System - Loadout (5 normale + 1 ultimate)
+        for (i in 0 until 5) {
+            editor.putString("loadout_normal_$i", characterLoadout.getNormalAbility(i)?.name)
+        }
         editor.putString("loadout_ultimate", characterLoadout.ultimateAbility?.name)
 
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
@@ -1621,21 +1644,23 @@ object GameState {
             }
         }
 
-        // RPG System - Loadout
-        val normal1Name = prefs.getString("loadout_normal1", null)
-        val normal2Name = prefs.getString("loadout_normal2", null)
-        val ultimateName = prefs.getString("loadout_ultimate", null)
-
-        characterLoadout = CharacterLoadout(
-            normalAbility1 = normal1Name?.let {
-                try { PaladinAbility.valueOf(it) } catch (e: IllegalArgumentException) { null }
-            },
-            normalAbility2 = normal2Name?.let {
-                try { PaladinAbility.valueOf(it) } catch (e: IllegalArgumentException) { null }
-            },
-            ultimateAbility = ultimateName?.let {
+        // RPG System - Loadout (5 normale + 1 ultimate)
+        val normalAbilities = mutableListOf<PaladinAbility?>(null, null, null, null, null)
+        for (i in 0 until 5) {
+            val abilityName = prefs.getString("loadout_normal_$i", null)
+            normalAbilities[i] = abilityName?.let {
                 try { PaladinAbility.valueOf(it) } catch (e: IllegalArgumentException) { null }
             }
+        }
+
+        val ultimateName = prefs.getString("loadout_ultimate", null)
+        val ultimateAbility = ultimateName?.let {
+            try { PaladinAbility.valueOf(it) } catch (e: IllegalArgumentException) { null }
+        }
+
+        characterLoadout = CharacterLoadout(
+            normalAbilities = normalAbilities,
+            ultimateAbility = ultimateAbility
         )
 
         // Reset passive points timer to prevent huge point gains on first load
@@ -1916,10 +1941,17 @@ enum class EquipmentSlot {
 }
 
 // Equipment Set für Klasse
-enum class EquipmentSet(val displayName: String, val description: String) {
+enum class EquipmentSet(
+    val displayName: String,
+    val description: String,
+    val hiddenEffect: String? = null
+) {
     PALADIN_SET1("Heiliger Beschützer", "Fokus auf Tank/Defense, hohe Rüstung, kann mehr aushalten"),
     PALADIN_SET2("Lichträcher", "Fokus auf heiligen Schaden, Balance zwischen Tank und Damage"),
-    PALADIN_SET3("Heilung", "Fokus auf Heilung, erhöhte Heilung, kann auch andere heilen");
+    PALADIN_SET3("Heilung", "Fokus auf Heilung, erhöhte Heilung, kann auch andere heilen",
+        "🩹 Hidden: Heilt deinen Schaden an Verbündete (Lifesteal für Team)");
+
+    fun hasHiddenEffect(): Boolean = hiddenEffect != null
 }
 
 // Equipment Item
@@ -1958,61 +1990,128 @@ enum class AbilityCategory {
     ULTIMATE  // Ultimate (3 verfügbar)
 }
 
-// Paladin Abilities
+// Paladin Abilities (mit Level-Skalierung und Requirements)
 enum class PaladinAbility(
     val displayName: String,
     val description: String,
     val type: AbilityType,
     val category: AbilityCategory,
+    val levelRequirement: Int,  // Welches Level benötigt um freizuschalten
     val cost: Int,  // Cooldown in Runden (COMBAT) oder Mana (SPELL)
-    val damage: Int = 0,
-    val healing: Int = 0,
-    val duration: Int = 0  // Dauer in Runden für Buffs/Debuffs
+    val baseDamage: Int = 0,
+    val baseHealing: Int = 0,
+    val baseDuration: Int = 0  // Dauer in Runden für Buffs/Debuffs
 ) {
-    // Normale Fähigkeiten - Kampf
-    SCHILDSCHLAG("Schildschlag", "Schlägt mit dem Schild, macht moderaten Schaden + betäubt 1 Runde",
-        AbilityType.COMBAT, AbilityCategory.NORMAL, 2, damage = 25, duration = 1),
+    // START-SKILLS (Level 1) - 3 Stück
+    SCHILDSCHLAG("Schildschlag", "Schlägt mit dem Schild, macht moderaten Schaden + betäubt",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 1, 2, baseDamage = 25, baseDuration = 1),
 
-    VERGELTUNGSSCHLAG("Vergeltungsschlag", "Kontert letzten Schaden und gibt 150% zurück",
-        AbilityType.COMBAT, AbilityCategory.NORMAL, 3, damage = 0),
+    HEILENDES_LICHT("Heilendes Licht", "Heilt dich oder Verbündeten",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 1, 30, baseHealing = 40),
 
-    VERTEIDIGUNGSHALTUNG("Verteidigungshaltung", "Reduziert Schaden um 50% für 2 Runden",
-        AbilityType.COMBAT, AbilityCategory.NORMAL, 4, duration = 2),
+    VERTEIDIGUNGSHALTUNG("Verteidigungshaltung", "Reduziert Schaden um 50%",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 1, 4, baseDuration = 2),
 
+    // Level 3
     HEILIGER_HAMMER("Heiliger Hammer", "Schwerer Angriff, hoher Schaden, ignoriert Rüstung",
-        AbilityType.COMBAT, AbilityCategory.NORMAL, 3, damage = 50),
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 3, 3, baseDamage = 50),
 
-    PROVOKATION("Provokation", "Zwingt Gegner dich 2 Runden anzugreifen",
-        AbilityType.COMBAT, AbilityCategory.NORMAL, 5, duration = 2),
+    // Level 5
+    SEGEN_DER_STAERKE("Segen der Stärke", "Erhöht Angriffskraft um 30% (+1% pro Level)",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 5, 25, baseDuration = 3),
 
-    // Normale Fähigkeiten - Zauber
-    HEILENDES_LICHT("Heilendes Licht", "Heilt dich oder Verbündeten für mittlere HP",
-        AbilityType.SPELL, AbilityCategory.NORMAL, 30, healing = 40),
+    // Level 7
+    VERGELTUNGSSCHLAG("Vergeltungsschlag", "Kontert letzten Schaden und gibt 150% zurück",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 7, 3, baseDamage = 0),
 
-    GOETTLICHER_SCHUTZ("Göttlicher Schutz", "Gewährt Schutzschild für 3 Runden",
-        AbilityType.SPELL, AbilityCategory.NORMAL, 40, duration = 3),
+    // Level 10
+    PROVOKATION("Provokation", "Zwingt Gegner dich anzugreifen",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 10, 5, baseDuration = 2),
 
-    SEGEN_DER_STAERKE("Segen der Stärke", "Erhöht Angriffskraft um 30% für 3 Runden",
-        AbilityType.SPELL, AbilityCategory.NORMAL, 25, duration = 3),
+    // Level 12
+    GOETTLICHER_SCHUTZ("Göttlicher Schutz", "Gewährt Schutzschild (absorbiert Schaden)",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 12, 40, baseDuration = 3),
 
+    // Level 15
     REINIGUNG("Reinigung", "Entfernt alle negativen Effekte",
-        AbilityType.SPELL, AbilityCategory.NORMAL, 35),
+        AbilityType.SPELL, AbilityCategory.NORMAL, 15, 35),
 
-    AURA_DER_RECHTSCHAFFENHEIT("Aura der Rechtschaffenheit", "Heilt dich und Verbündete für 5 HP/Runde, 4 Runden",
-        AbilityType.SPELL, AbilityCategory.NORMAL, 50, healing = 5, duration = 4),
+    // Level 18
+    AURA_DER_RECHTSCHAFFENHEIT("Aura der Rechtschaffenheit", "Heilt dich und Verbündete pro Runde",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 18, 50, baseHealing = 5, baseDuration = 4),
 
-    // Ultimate Fähigkeiten
-    UNERSCHUETTERLICHE_FESTUNG("Unerschütterliche Festung", "Macht dich 4 Runden UNVERWUNDBAR, zieht alle Angriffe, heilt 10% HP/Runde",
-        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 1, duration = 4),
+    // ULTIMATES
+    // Level 10 - Erste Ulti
+    UNERSCHUETTERLICHE_FESTUNG("Unerschütterliche Festung", "4 Runden UNVERWUNDBAR + zieht alle Angriffe + heilt 10% HP/Runde",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 10, 1, baseDuration = 4),
 
+    // Level 20 - Zweite Ulti
     URTEIL_DES_LICHTS("Urteil des Lichts", "Massiver heiliger AOE-Schaden + heilt Verbündete für 50% des Schadens",
-        AbilityType.SPELL, AbilityCategory.ULTIMATE, 1, damage = 100),
+        AbilityType.SPELL, AbilityCategory.ULTIMATE, 20, 1, baseDamage = 100),
 
-    GOETTLICHE_INTERVENTION("Göttliche Intervention", "Vollheilung aller Verbündeten + entfernt alle Debuffs + Immunität 3 Runden",
-        AbilityType.SPELL, AbilityCategory.ULTIMATE, 1, healing = 999, duration = 3);
+    // Level 30 - Dritte Ulti
+    GOETTLICHE_INTERVENTION("Göttliche Intervention", "Vollheilung aller + entfernt alle Debuffs + Immunität 3 Runden",
+        AbilityType.SPELL, AbilityCategory.ULTIMATE, 30, 1, baseHealing = 999, baseDuration = 3);
 
     fun isNormal(): Boolean = category == AbilityCategory.NORMAL
     fun isUltimate(): Boolean = category == AbilityCategory.ULTIMATE
+
+    // Berechne skalierten Schaden basierend auf Character Level
+    fun getDamage(characterLevel: Int): Int {
+        if (baseDamage == 0) return 0
+        // Formel: Base + (Level × 2.5)
+        return (baseDamage + (characterLevel * 2.5)).toInt()
+    }
+
+    // Berechne skalierte Heilung basierend auf Character Level
+    fun getHealing(characterLevel: Int): Int {
+        if (baseHealing == 0) return 0
+        if (baseHealing >= 999) return 999  // Vollheilung bleibt Vollheilung
+        // Formel: Base + (Level × 2)
+        return (baseHealing + (characterLevel * 2)).toInt()
+    }
+
+    // Berechne skalierte Duration basierend auf Character Level
+    fun getDuration(characterLevel: Int): Int {
+        if (baseDuration == 0) return 0
+        // Formel: Base + (Level / 5) - alle 5 Level +1 Runde
+        return baseDuration + (characterLevel / 5)
+    }
+
+    // Berechne Buff-Percentage (für Segen der Stärke etc.)
+    fun getBuffPercentage(characterLevel: Int): Int {
+        return when(this) {
+            SEGEN_DER_STAERKE -> 30 + characterLevel  // 30% + 1% pro Level
+            VERTEIDIGUNGSHALTUNG -> 50  // Fix 50% Damage Reduction
+            VERGELTUNGSSCHLAG -> 150 + characterLevel  // 150% + 1% pro Level
+            else -> 0
+        }
+    }
+
+    // Check ob Skill bei diesem Level freigeschaltet ist
+    fun isUnlockedAt(characterLevel: Int): Boolean {
+        return characterLevel >= levelRequirement
+    }
+
+    // Beschreibung mit Level-Werten
+    fun getScaledDescription(characterLevel: Int): String {
+        val dmg = if (baseDamage > 0) "${getDamage(characterLevel)} Schaden" else ""
+        val heal = if (baseHealing > 0 && baseHealing < 999) "${getHealing(characterLevel)} HP"
+                  else if (baseHealing >= 999) "Vollheilung" else ""
+        val dur = if (baseDuration > 0) "${getDuration(characterLevel)} Runden" else ""
+        val buff = if (this == SEGEN_DER_STAERKE) "+${getBuffPercentage(characterLevel)}% Angriff"
+                  else if (this == VERTEIDIGUNGSHALTUNG) "-${getBuffPercentage(characterLevel)}% Schaden"
+                  else if (this == VERGELTUNGSSCHLAG) "${getBuffPercentage(characterLevel)}% Konter"
+                  else ""
+
+        return buildString {
+            append(description)
+            if (dmg.isNotEmpty()) append(" [$dmg]")
+            if (heal.isNotEmpty()) append(" [$heal]")
+            if (dur.isNotEmpty()) append(" [$dur]")
+            if (buff.isNotEmpty()) append(" [$buff]")
+        }
+    }
 }
 
 // ==================== D&D 5E SYSTEM ====================
@@ -2364,16 +2463,56 @@ data class CharacterStats(
     }
 }
 
-// Character Loadout (2 normale Fähigkeiten + 1 Ultimate vor Abenteuer gewählt)
+// Character Loadout (vor Abenteuer gewählt, skaliert mit Level)
 data class CharacterLoadout(
-    var normalAbility1: PaladinAbility? = null,
-    var normalAbility2: PaladinAbility? = null,
+    val normalAbilities: MutableList<PaladinAbility?> = mutableListOf(null, null, null, null, null),  // Max 5
     var ultimateAbility: PaladinAbility? = null
 ) {
-    fun isComplete(): Boolean {
-        return normalAbility1 != null &&
-               normalAbility2 != null &&
-               ultimateAbility != null &&
-               normalAbility1 != normalAbility2  // Keine Duplikate
+    // Wie viele normale Slots sind verfügbar basierend auf Level?
+    fun getMaxNormalSlots(characterLevel: Int): Int = when {
+        characterLevel < 10 -> 2   // Level 1-9: 2 Slots
+        characterLevel < 20 -> 3   // Level 10-19: 3 Slots
+        characterLevel < 30 -> 4   // Level 20-29: 4 Slots
+        else -> 5                   // Level 30+: 5 Slots
+    }
+
+    // Hat Character Zugang zu Ultimate-Slot?
+    fun hasUltimateSlot(characterLevel: Int): Boolean = characterLevel >= 10
+
+    // Setze normale Fähigkeit an Index
+    fun setNormalAbility(index: Int, ability: PaladinAbility?, characterLevel: Int): Boolean {
+        if (index >= getMaxNormalSlots(characterLevel)) return false
+        if (ability != null && !ability.isNormal()) return false
+
+        // Check for duplicates
+        if (ability != null && normalAbilities.contains(ability)) return false
+
+        normalAbilities[index] = ability
+        return true
+    }
+
+    // Get normale Fähigkeit an Index
+    fun getNormalAbility(index: Int): PaladinAbility? = normalAbilities.getOrNull(index)
+
+    // Get alle ausgerüsteten normalen Fähigkeiten
+    fun getEquippedNormalAbilities(): List<PaladinAbility> {
+        return normalAbilities.filterNotNull()
+    }
+
+    // Check ob Loadout komplett ist (für dieses Level)
+    fun isComplete(characterLevel: Int): Boolean {
+        val requiredNormalSlots = getMaxNormalSlots(characterLevel)
+        val filledNormalSlots = normalAbilities.take(requiredNormalSlots).count { it != null }
+
+        val hasRequiredNormals = filledNormalSlots == requiredNormalSlots
+        val hasRequiredUltimate = if (hasUltimateSlot(characterLevel)) ultimateAbility != null else true
+
+        return hasRequiredNormals && hasRequiredUltimate
+    }
+
+    // Clear loadout
+    fun clear() {
+        normalAbilities.fill(null)
+        ultimateAbility = null
     }
 }
