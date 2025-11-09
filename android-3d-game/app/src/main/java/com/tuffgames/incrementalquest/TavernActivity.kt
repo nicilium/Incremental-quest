@@ -237,9 +237,9 @@ Patrick lehnt sich zurück und grinst:
 "Na also! Du hast es geschafft, du Knalltüte!
 Zwei D20... nicht schlecht für einen Anfänger!
 
-Jetzt such dir eine Klasse aus, aber überleg's dir gut!
-Jede hat ihre eigenen Boni, und ich will nicht,
-dass du später rumheulst! 😏"
+Hier, nimm diesen Paladin-Orden! Du bist jetzt ein
+HEILIGER KRIEGER! Ein Tank mit dicken Muskeln und
+göttlicher Magie! Jetzt wird's ernst! 🛡️⚔️"
         """.trimIndent()
         patrickText.textSize = 13f
         patrickText.setTextColor(Color.rgb(200, 200, 200))
@@ -250,42 +250,222 @@ dass du später rumheulst! 😏"
         val currentClass = GameState.selectedClass
         if (currentClass != null) {
             val selectedText = TextView(this)
-            selectedText.text = "Aktuelle Klasse: ${currentClass.emoji} ${currentClass.displayName}"
+            selectedText.text = """
+Aktuelle Klasse: ${currentClass.emoji} ${currentClass.displayName}
+Level: ${GameState.getCharacterStats()?.level ?: 1}
+            """.trimIndent()
             selectedText.textSize = 16f
             selectedText.setTextColor(Color.rgb(100, 255, 100))
             selectedText.gravity = Gravity.CENTER
             selectedText.setPadding(0, 10, 0, 10)
             card.addView(selectedText)
-        }
 
-        // Klassen-Buttons
-        PlayerClass.values().forEach { playerClass ->
-            val classButton = Button(this)
-            classButton.text = "${playerClass.emoji} ${playerClass.displayName}\n${playerClass.description}\n${playerClass.getBonusDescription()}"
-            classButton.textSize = 14f
-            classButton.setBackgroundColor(
-                if (currentClass == playerClass) Color.rgb(50, 150, 50)
-                else Color.rgb(80, 60, 100)
-            )
-            classButton.setTextColor(Color.WHITE)
-            classButton.setPadding(15, 15, 15, 15)
+            // Currency Display
+            val currencyText = TextView(this)
+            currencyText.text = """
+💰 Gold: ${GameState.gold}  |  💎 Divine Essence: ${GameState.divineEssence}
+            """.trimIndent()
+            currencyText.textSize = 14f
+            currencyText.setTextColor(Color.rgb(255, 215, 0))
+            currencyText.gravity = Gravity.CENTER
+            currencyText.setPadding(0, 5, 0, 10)
+            card.addView(currencyText)
+
+            // Character Stats anzeigen (D&D 5e)
+            GameState.getCharacterStats()?.let { stats ->
+                // D&D Attributes mit Modifiers
+                val attributesText = TextView(this)
+                attributesText.text = """
+D&D ATTRIBUTE:
+💪 STR: ${stats.strength} (${formatModifier(stats.getModifier(DndAttribute.STRENGTH))})
+🤸 DEX: ${stats.dexterity} (${formatModifier(stats.getModifier(DndAttribute.DEXTERITY))})
+💚 CON: ${stats.constitution} (${formatModifier(stats.getModifier(DndAttribute.CONSTITUTION))})
+📚 INT: ${stats.intelligence} (${formatModifier(stats.getModifier(DndAttribute.INTELLIGENCE))})
+🧠 WIS: ${stats.wisdom} (${formatModifier(stats.getModifier(DndAttribute.WISDOM))})
+✨ CHA: ${stats.charisma} (${formatModifier(stats.getModifier(DndAttribute.CHARISMA))})
+                """.trimIndent()
+                attributesText.textSize = 12f
+                attributesText.setTextColor(Color.rgb(255, 215, 0))
+                attributesText.gravity = Gravity.START
+                attributesText.setPadding(20, 15, 10, 5)
+                card.addView(attributesText)
+
+                // Combat Stats
+                val combatStatsText = TextView(this)
+                combatStatsText.text = """
+❤️ HP: ${stats.currentHP}/${stats.maxHP}${if (stats.temporaryHP > 0) " (+${stats.temporaryHP} temp)" else ""}
+✨ Mana: ${stats.currentMana}/${stats.maxMana}
+🛡️ AC: ${stats.getArmorClass()}
+⚡ Initiative: ${formatModifier(stats.getInitiative())}
+🎯 Proficiency: +${stats.getProficiencyBonus()}
+                """.trimIndent()
+                combatStatsText.textSize = 12f
+                combatStatsText.setTextColor(Color.rgb(100, 255, 100))
+                combatStatsText.gravity = Gravity.START
+                combatStatsText.setPadding(20, 5, 10, 5)
+                card.addView(combatStatsText)
+
+                // XP Progress
+                val xpText = TextView(this)
+                xpText.text = "📊 EXP: ${stats.experience} / ${stats.getNextLevelXP()}"
+                xpText.textSize = 12f
+                xpText.setTextColor(Color.rgb(200, 200, 255))
+                xpText.gravity = Gravity.CENTER
+                xpText.setPadding(0, 5, 0, 10)
+                card.addView(xpText)
+            }
+
+            // COMBAT SECTION - nur wenn Klasse gewählt
+            // Divider
+            val combatDivider = TextView(this)
+            combatDivider.text = "═══ ⚔️ KÄMPFE ⚔️ ═══"
+            combatDivider.textSize = 14f
+            combatDivider.setTextColor(Color.RED)
+            combatDivider.gravity = Gravity.CENTER
+            combatDivider.setPadding(0, 20, 0, 10)
+            card.addView(combatDivider)
+
+            val combatInfoText = TextView(this)
+            combatInfoText.text = """
+Patrick lehnt sich über die Theke und zeigt auf ein schwarzes Brett:
+
+"Hier kannst du deine Fähigkeiten unter Beweis stellen!"
+
+📖 STORY: Epische Abenteuer mit smarter KI
+💼 AUFTRÄGE: Zufallskämpfe für Belohnungen
+            """.trimIndent()
+            combatInfoText.textSize = 12f
+            combatInfoText.setTextColor(Color.rgb(220, 220, 220))
+            combatInfoText.setPadding(10, 5, 10, 15)
+            card.addView(combatInfoText)
+
+            // Story Combat Button
+            val storyCombatButton = Button(this)
+            storyCombatButton.text = """
+📖 STORY-KAMPF
+${if (!GameState.getActiveCombat()?.isTutorial?.let { it } == true && GameState.getCharacterStats()?.level == 1)
+    "⚠️ TUTORIAL verfügbar!" else "Episches Abenteuer"}
+            """.trimIndent()
+            storyCombatButton.textSize = 14f
+            storyCombatButton.setBackgroundColor(Color.rgb(100, 40, 40))
+            storyCombatButton.setTextColor(Color.WHITE)
+            storyCombatButton.setPadding(10, 10, 10, 10)
+            storyCombatButton.setOnClickListener {
+                // Check if loadout is complete
+                if (!GameState.isLoadoutComplete()) {
+                    val alert = android.app.AlertDialog.Builder(this)
+                    alert.setTitle("⚠️ Loadout unvollständig!")
+                    alert.setMessage("Du musst erst deine Fähigkeiten auswählen!\n\nGehe zu 'Loadout konfigurieren'")
+                    alert.setPositiveButton("OK", null)
+                    alert.show()
+                    return@setOnClickListener
+                }
+
+                // Start Story Combat
+                val combat = if (GameState.getCharacterStats()?.level == 1) {
+                    GameState.getTutorialCombat()
+                } else {
+                    GameState.getStoryCombat()
+                }
+
+                if (combat != null) {
+                    val intent = Intent(this, CombatActivity::class.java)
+                    startActivity(intent)
+                }
+            }
+            card.addView(storyCombatButton)
+
+            // Auftrag Combat Button
+            val auftragCombatButton = Button(this)
+            auftragCombatButton.text = """
+💼 AUFTRAG
+Zufallskampf für Belohnungen
+            """.trimIndent()
+            auftragCombatButton.textSize = 14f
+            auftragCombatButton.setBackgroundColor(Color.rgb(40, 40, 100))
+            auftragCombatButton.setTextColor(Color.WHITE)
+            auftragCombatButton.setPadding(10, 10, 10, 10)
+            auftragCombatButton.setOnClickListener {
+                // Check if loadout is complete
+                if (!GameState.isLoadoutComplete()) {
+                    val alert = android.app.AlertDialog.Builder(this)
+                    alert.setTitle("⚠️ Loadout unvollständig!")
+                    alert.setMessage("Du musst erst deine Fähigkeiten auswählen!\n\nGehe zu 'Loadout konfigurieren'")
+                    alert.setPositiveButton("OK", null)
+                    alert.show()
+                    return@setOnClickListener
+                }
+
+                // Start Auftrag Combat
+                val combat = GameState.getAuftragCombat()
+                if (combat != null) {
+                    val intent = Intent(this, CombatActivity::class.java)
+                    startActivity(intent)
+                }
+            }
+            card.addView(auftragCombatButton)
+
+            // Loadout Config Button (wichtig!)
+            val loadoutButton = Button(this)
+            loadoutButton.text = "⚡ Loadout konfigurieren"
+            loadoutButton.textSize = 12f
+            loadoutButton.setBackgroundColor(Color.rgb(60, 60, 60))
+            loadoutButton.setTextColor(Color.YELLOW)
+            loadoutButton.setPadding(10, 5, 10, 5)
+            loadoutButton.setOnClickListener {
+                val alert = android.app.AlertDialog.Builder(this)
+                alert.setTitle("🚧 In Entwicklung")
+                alert.setMessage("Loadout-Konfiguration kommt im nächsten Update!\n\nFür jetzt: Standard-Loadout wird verwendet.")
+                alert.setPositiveButton("OK", null)
+                alert.show()
+            }
+            card.addView(loadoutButton)
+        } else {
+            // Paladin-Button (nur beim ersten Mal)
+            val paladinButton = Button(this)
+            paladinButton.text = """
+🛡️ PALADIN WERDEN! ⚔️
+
+Heiliger Krieger - Tank mit Heilmagie
+
+D&D Stats (Level 1):
+💪 STR 16 (+3)  🤸 DEX 10 (+0)  💚 CON 14 (+2)
+📚 INT 8 (-1)   🧠 WIS 12 (+1)  ✨ CHA 16 (+3)
+
+❤️ HP: 12 (d10)  🛡️ AC: 10  ✨ Mana: 15 (CHA)
+Hit Dice: d10  |  Casting Stat: Charisma
+
+3 Equipment Sets:
+• Heiliger Beschützer (Tank)
+• Lichträcher (Balance)
+• Heilung (Support)
+            """.trimIndent()
+            paladinButton.textSize = 13f
+            paladinButton.setBackgroundColor(Color.rgb(80, 60, 100))
+            paladinButton.setTextColor(Color.WHITE)
+            paladinButton.setPadding(15, 15, 15, 15)
             val buttonParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
             buttonParams.setMargins(0, 10, 0, 0)
-            classButton.layoutParams = buttonParams
+            paladinButton.layoutParams = buttonParams
 
-            classButton.setOnClickListener {
-                GameState.selectClass(playerClass)
+            paladinButton.setOnClickListener {
+                GameState.selectClass(PlayerClass.PALADIN)
                 GameState.saveState(this)
                 // Refresh UI
                 recreate()
             }
 
-            card.addView(classButton)
+            card.addView(paladinButton)
         }
 
         return card
+    }
+
+    // Helper function to format D&D modifiers
+    private fun formatModifier(modifier: Int): String {
+        return if (modifier >= 0) "+$modifier" else "$modifier"
     }
 }

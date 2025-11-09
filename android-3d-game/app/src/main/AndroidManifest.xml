@@ -48,6 +48,11 @@
             android:exported="false"
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize" />
+        <activity
+            android:name=".CombatActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
     </application>
 
 </manifest>
