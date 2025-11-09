@@ -24,6 +24,10 @@ object GameState {
     var divineEssence = 0
         private set
 
+    // Gold currency (for equipment upgrades, fusion, etc.)
+    var gold = 0
+        private set
+
     // Total Divine Essence ever earned (for permanent bonus)
     var totalDivineEssenceEarned = 0
         private set
@@ -745,6 +749,14 @@ object GameState {
             equippedItems[EquipmentSlot.ARMOR] = Equipment(EquipmentSlot.ARMOR, starterSet)
             equippedItems[EquipmentSlot.ACCESSORY] = Equipment(EquipmentSlot.ACCESSORY, starterSet)
         }
+
+        // Set default loadout for Paladin
+        if (playerClass == PlayerClass.PALADIN) {
+            // 3 starter abilities (available at level 1)
+            characterLoadout.normalAbilities[0] = PaladinAbility.SCHILDSCHLAG
+            characterLoadout.normalAbilities[1] = PaladinAbility.HEILENDES_LICHT
+            // Slot 2 bleibt leer bis Level 10 (dann 3 normal slots)
+        }
     }
 
     // Calculate max mana based on casting stat and level
@@ -800,7 +812,15 @@ object GameState {
         inventory.add(equipment)
     }
 
-    // Combine 3 same items to upgrade rarity
+    // Get fusion cost (3 items → 1 higher rarity)
+    fun getFusionCost(equipment: Equipment): Int {
+        if (!equipment.canCombine()) return Int.MAX_VALUE
+        val baseCost = 100  // Base fusion cost in gold
+        val rarityMultiplier = equipment.rarity.getMultiplier()
+        return baseCost * rarityMultiplier
+    }
+
+    // Combine 3 same items to upgrade rarity (costs gold)
     fun canCombineEquipment(equipment: Equipment): Boolean {
         if (!equipment.canCombine()) return false
         val sameItems = inventory.filter {
@@ -809,11 +829,17 @@ object GameState {
             it.rarity == equipment.rarity &&
             it.tier == equipment.tier
         }
-        return sameItems.size >= 3
+        val hasEnoughItems = sameItems.size >= 3
+        val hasEnoughGold = gold >= getFusionCost(equipment)
+        return hasEnoughItems && hasEnoughGold
     }
 
     fun combineEquipment(equipment: Equipment): Boolean {
         if (!canCombineEquipment(equipment)) return false
+
+        // Check gold cost
+        val cost = getFusionCost(equipment)
+        if (gold < cost) return false
 
         // Find 3 same items
         val sameItems = inventory.filter {
@@ -824,6 +850,9 @@ object GameState {
         }.take(3)
 
         if (sameItems.size < 3) return false
+
+        // Pay gold cost
+        gold -= cost
 
         // Remove the 3 items
         sameItems.forEach { inventory.remove(it) }
@@ -844,19 +873,19 @@ object GameState {
     // Upgrade equipment tier (costs DE)
     fun getEquipmentUpgradeCost(equipment: Equipment): Int {
         if (!equipment.canUpgrade()) return Int.MAX_VALUE
-        val baseCost = 10
+        val baseCost = 50  // Base cost in gold
         val rarityMultiplier = equipment.rarity.getMultiplier()
         return baseCost * rarityMultiplier * equipment.tier
     }
 
     fun canUpgradeEquipment(equipment: Equipment): Boolean {
-        return equipment.canUpgrade() && divineEssence >= getEquipmentUpgradeCost(equipment)
+        return equipment.canUpgrade() && gold >= getEquipmentUpgradeCost(equipment)
     }
 
     fun upgradeEquipment(equipment: Equipment): Boolean {
         if (!canUpgradeEquipment(equipment)) return false
         val cost = getEquipmentUpgradeCost(equipment)
-        divineEssence -= cost
+        gold -= cost
         equipment.tier++
         // If this equipment is currently equipped, update bonuses
         if (equippedItems.values.contains(equipment)) {
@@ -1299,8 +1328,17 @@ object GameState {
             // Apply XP
             giveExperience(result.xpGained)
 
+            // Apply Gold
+            gold += result.goldGained
+
             // Apply Divine Essence
             divineEssence += result.essenceGained
+
+            // Add equipment drop to inventory if present
+            result.lootDropped?.let { equipment ->
+                addItemToInventory(equipment)
+                combat.addLog("⚔️ Equipment gefunden: ${equipment.rarity.displayName} ${equipment.slot.name} (Tier ${equipment.tier})", true)
+            }
 
             // Track completion
             when (combat.combatType) {
@@ -1323,7 +1361,13 @@ object GameState {
                 combat.addLog("Nach dem Kampf: $restoreAmount Mana wiederhergestellt")
             }
 
-            combat.addLog("Belohnungen: +${result.xpGained} XP, +${result.essenceGained} DE", true)
+            val rewardsText = buildString {
+                append("Belohnungen:")
+                if (result.xpGained > 0) append(" +${result.xpGained} XP")
+                if (result.goldGained > 0) append(" +${result.goldGained} Gold")
+                if (result.essenceGained > 0) append(" +${result.essenceGained} DE")
+            }
+            combat.addLog(rewardsText, true)
         } else {
             // Defeat - restore player to 50% HP for next attempt
             characterStats?.let { stats ->
@@ -3064,6 +3108,68 @@ data class CharacterLoadout(
 
 // ==================== COMBAT SYSTEM ====================
 
+// Helper function: Generate equipment drop from combat (30% chance)
+internal fun generateCombatEquipmentDrop(enemyLevel: Int, playerClass: PlayerClass?): Equipment? {
+    if (playerClass == null) return null
+    val availableSets = playerClass.getAvailableSets()
+    if (availableSets.isEmpty()) return null
+
+    // Drop chance: 30% base
+    val dropChance = 30
+    val roll = (1..100).random()
+
+    if (roll > dropChance) return null
+
+    // Random slot
+    val slot = EquipmentSlot.values().random()
+
+    // Random set
+    val set = availableSets.random()
+
+    // Rarity based on enemy level (higher level = better drops)
+    val rarity = when {
+        enemyLevel <= 2 -> {
+            val rarityRoll = (1..100).random()
+            when {
+                rarityRoll <= 80 -> EquipmentRarity.GRAU   // 80%
+                else -> EquipmentRarity.WEISS              // 20%
+            }
+        }
+        enemyLevel <= 5 -> {
+            val rarityRoll = (1..100).random()
+            when {
+                rarityRoll <= 50 -> EquipmentRarity.GRAU   // 50%
+                rarityRoll <= 85 -> EquipmentRarity.WEISS  // 35%
+                else -> EquipmentRarity.GRUEN              // 15%
+            }
+        }
+        enemyLevel <= 10 -> {
+            val rarityRoll = (1..100).random()
+            when {
+                rarityRoll <= 30 -> EquipmentRarity.GRAU   // 30%
+                rarityRoll <= 60 -> EquipmentRarity.WEISS  // 30%
+                rarityRoll <= 85 -> EquipmentRarity.GRUEN  // 25%
+                else -> EquipmentRarity.BLAU               // 15%
+            }
+        }
+        else -> {
+            val rarityRoll = (1..100).random()
+            when {
+                rarityRoll <= 20 -> EquipmentRarity.GRAU   // 20%
+                rarityRoll <= 45 -> EquipmentRarity.WEISS  // 25%
+                rarityRoll <= 70 -> EquipmentRarity.GRUEN  // 25%
+                rarityRoll <= 90 -> EquipmentRarity.BLAU   // 20%
+                else -> EquipmentRarity.LILA               // 10%
+            }
+        }
+    }
+
+    // Tier based on enemy level
+    val tier = ((enemyLevel / 2) + 1).coerceIn(1, 10)
+
+    return Equipment(slot, set, rarity, tier)
+}
+
 // Monster Type
 enum class MonsterType(val displayName: String) {
     BEAST("Bestie"),
@@ -3230,11 +3336,17 @@ data class CombatState(
                 val totalGold = enemyParty.sumOf { it.enemy.goldReward }
                 val totalEssence = enemyParty.sumOf { it.enemy.essenceReward }
 
+                // Generate equipment drop (30% chance, based on highest enemy level)
+                val highestEnemyLevel = enemyParty.maxOfOrNull { it.enemy.level } ?: 1
+                val playerClass = playerParty.firstOrNull()?.playerClass
+                val equipmentDrop = generateCombatEquipmentDrop(highestEnemyLevel, playerClass)
+
                 combatResult = CombatResult(
                     victory = true,
                     xpGained = totalXP,
                     goldGained = totalGold,
                     essenceGained = totalEssence,
+                    lootDropped = equipmentDrop,
                     roundsLasted = currentRound
                 )
                 addLog("🎉 SIEG! Du hast gewonnen!", true)

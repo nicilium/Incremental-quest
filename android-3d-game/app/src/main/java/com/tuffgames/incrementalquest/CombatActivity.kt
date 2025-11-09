@@ -503,15 +503,30 @@ Viel Erfolg! 🗡️
 
         if (result.victory) {
             builder.setTitle("🎉 SIEG!")
-            builder.setMessage("""
-Glückwunsch! Du hast gewonnen!
 
-⚔️ Runden: ${result.roundsLasted}
-✨ XP: +${result.xpGained}
-💎 Divine Essence: +${result.essenceGained}
+            val messageBuilder = StringBuilder()
+            messageBuilder.append("Glückwunsch! Du hast gewonnen!\n\n")
+            messageBuilder.append("⚔️ Runden: ${result.roundsLasted}\n")
 
-${if (result.goldGained > 0) "💰 Gold: +${result.goldGained}" else ""}
-            """.trimIndent())
+            if (result.xpGained > 0) {
+                messageBuilder.append("✨ XP: +${result.xpGained}\n")
+            }
+
+            if (result.goldGained > 0) {
+                messageBuilder.append("💰 Gold: +${result.goldGained}\n")
+            }
+
+            if (result.essenceGained > 0) {
+                messageBuilder.append("💎 Divine Essence: +${result.essenceGained}\n")
+            }
+
+            result.lootDropped?.let { equipment ->
+                messageBuilder.append("\n⚔️ EQUIPMENT GEFUNDEN!\n")
+                messageBuilder.append("${equipment.rarity.displayName} ${equipment.slot.name}\n")
+                messageBuilder.append("Tier ${equipment.tier} | ${equipment.set.displayName}\n")
+            }
+
+            builder.setMessage(messageBuilder.toString().trim())
         } else {
             builder.setTitle("💀 NIEDERLAGE")
             builder.setMessage("""

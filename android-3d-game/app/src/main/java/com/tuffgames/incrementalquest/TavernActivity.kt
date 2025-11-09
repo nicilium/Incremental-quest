@@ -260,6 +260,17 @@ Level: ${GameState.getCharacterStats()?.level ?: 1}
             selectedText.setPadding(0, 10, 0, 10)
             card.addView(selectedText)
 
+            // Currency Display
+            val currencyText = TextView(this)
+            currencyText.text = """
+💰 Gold: ${GameState.gold}  |  💎 Divine Essence: ${GameState.divineEssence}
+            """.trimIndent()
+            currencyText.textSize = 14f
+            currencyText.setTextColor(Color.rgb(255, 215, 0))
+            currencyText.gravity = Gravity.CENTER
+            currencyText.setPadding(0, 5, 0, 10)
+            card.addView(currencyText)
+
             // Character Stats anzeigen (D&D 5e)
             GameState.getCharacterStats()?.let { stats ->
                 // D&D Attributes mit Modifiers
