@@ -1032,6 +1032,341 @@ object GameState {
         return playerClass.getAvailableUltimates().filter { it.isUnlockedAt(level) }
     }
 
+    // ========== COMBAT SYSTEM ==========
+
+    // Current active combat
+    private var activeCombat: CombatState? = null
+
+    // Story progress tracking
+    private var storyCompletedCount = 0
+    private var hasCompletedTutorialCombat = false
+
+    // Auftrag progress tracking
+    private var auftragCompletedCount = 0
+
+    // Get active combat
+    fun getActiveCombat(): CombatState? = activeCombat
+
+    // Start combat (Story or Auftrag)
+    fun startCombat(combatType: CombatType, enemies: List<Enemy>): CombatState? {
+        val stats = characterStats ?: return null
+        val playerClass = selectedClass ?: return null
+
+        // Check if tutorial combat for first story
+        val isTutorial = combatType == CombatType.STORY && !hasCompletedTutorialCombat
+
+        // Create player participant
+        val playerParticipant = CombatParticipant.PlayerParticipant(
+            stats = stats,
+            loadout = characterLoadout,
+            playerClass = playerClass,
+            name = "Du"
+        )
+
+        // Create enemy participants
+        val enemyParticipants = enemies.mapIndexed { index, enemy ->
+            CombatParticipant.EnemyParticipant(enemy, index)
+        }
+
+        // Create combat state
+        val combat = CombatState(
+            combatType = combatType,
+            isTutorial = isTutorial,
+            playerParty = mutableListOf(playerParticipant),
+            enemyParty = enemyParticipants.toMutableList(),
+            auftragCount = if (combatType == CombatType.AUFTRAG) auftragCompletedCount + 1 else 0
+        )
+
+        // Calculate initiative order
+        calculateInitiative(combat)
+
+        // Set first turn
+        combat.currentRound = 1
+        combat.currentTurnIndex = 0
+        combat.isPlayerTurn = combat.isCurrentPlayerTurn()
+
+        // Add combat start log
+        combat.addLog("⚔️ Kampf beginnt!", true)
+        if (isTutorial) {
+            combat.addLog("📖 TUTORIAL: Dies ist dein erster Kampf! Nutze deine Fähigkeiten weise.", true)
+        }
+
+        activeCombat = combat
+        return combat
+    }
+
+    // Calculate initiative order (DEX-based)
+    private fun calculateInitiative(combat: CombatState) {
+        val allParticipants = (combat.playerParty + combat.enemyParty).toMutableList()
+
+        // Sort by initiative (highest first), then random for ties
+        combat.turnOrder = allParticipants.sortedWith(
+            compareByDescending<CombatParticipant> { it.initiative }
+                .thenBy { kotlin.random.Random.nextInt() }
+        )
+    }
+
+    // Execute player attack (basic attack)
+    fun executePlayerBasicAttack(targetIndex: Int): Boolean {
+        val combat = activeCombat ?: return false
+        if (!combat.isCurrentPlayerTurn()) return false
+
+        val player = combat.getCurrentParticipant() as? CombatParticipant.PlayerParticipant ?: return false
+        val target = combat.enemyParty.getOrNull(targetIndex) ?: return false
+
+        if (!target.isAlive()) return false
+
+        // Calculate damage
+        val equipStats = getTotalEquipmentStats()
+        val strMod = player.stats.getModifier(DndAttribute.STRENGTH)
+        val baseDamage = equipStats.weaponDamage + strMod + (player.stats.level / 2)
+        val damage = calculateDamage(baseDamage, target.enemy.armor)
+
+        target.enemy.takeDamage(damage)
+        combat.addLog("${player.name} greift ${target.name} an und macht $damage Schaden!")
+
+        if (target.enemy.isDead()) {
+            combat.addLog("${target.name} wurde besiegt!", true)
+        }
+
+        advanceTurn(combat)
+        return true
+    }
+
+    // Execute player ability
+    fun executePlayerAbility(ability: PaladinAbility, targetIndex: Int = 0): Boolean {
+        val combat = activeCombat ?: return false
+        if (!combat.isCurrentPlayerTurn()) return false
+
+        val player = combat.getCurrentParticipant() as? CombatParticipant.PlayerParticipant ?: return false
+
+        // Check cooldown
+        if (combat.abilityCooldowns.getOrDefault(ability, 0) > 0) {
+            combat.addLog("${ability.displayName} ist noch auf Cooldown!")
+            return false
+        }
+
+        // Check mana cost for SPELL abilities
+        if (ability.type == AbilityType.SPELL) {
+            if (player.stats.currentMana < ability.cost) {
+                combat.addLog("Nicht genug Mana! Benötigt: ${ability.cost}, verfügbar: ${player.stats.currentMana}")
+                return false
+            }
+            player.stats.currentMana -= ability.cost
+        }
+
+        // Execute ability effect
+        when {
+            ability.baseDamage > 0 -> {
+                // Damage ability
+                val target = combat.enemyParty.getOrNull(targetIndex) ?: return false
+                if (!target.isAlive()) return false
+
+                val damage = calculateAbilityDamage(ability, player)
+                target.enemy.takeDamage(damage)
+                combat.addLog("${player.name} nutzt ${ability.displayName} gegen ${target.name} und macht $damage Schaden!")
+
+                if (target.enemy.isDead()) {
+                    combat.addLog("${target.name} wurde besiegt!", true)
+                }
+            }
+            ability.baseHealing > 0 -> {
+                // Healing ability
+                val healing = calculateHealing(ability, player)
+                player.stats.heal(healing)
+                combat.addLog("${player.name} nutzt ${ability.displayName} und heilt sich um $healing HP!")
+            }
+            else -> {
+                // Buff/Utility ability
+                combat.addLog("${player.name} nutzt ${ability.displayName}!")
+            }
+        }
+
+        // Set cooldown for COMBAT abilities
+        if (ability.type == AbilityType.COMBAT) {
+            combat.abilityCooldowns[ability] = ability.cost
+        }
+
+        advanceTurn(combat)
+        return true
+    }
+
+    // Calculate damage with AC reduction
+    private fun calculateDamage(baseDamage: Int, targetAC: Int): Int {
+        // Simple formula: damage - (AC / 4)
+        val reduction = targetAC / 4
+        return (baseDamage - reduction).coerceAtLeast(1)
+    }
+
+    // Calculate ability damage
+    private fun calculateAbilityDamage(ability: PaladinAbility, player: CombatParticipant.PlayerParticipant): Int {
+        val equipStats = getTotalEquipmentStats()
+        val baseDamage = ability.getDamage(player.stats.level)
+        val weaponBonus = equipStats.weaponDamage / 2
+        return baseDamage + weaponBonus
+    }
+
+    // Calculate healing
+    private fun calculateHealing(ability: PaladinAbility, player: CombatParticipant.PlayerParticipant): Int {
+        val equipStats = getTotalEquipmentStats()
+        val baseHealing = ability.getHealing(player.stats.level)
+        val healingBonus = (baseHealing * equipStats.healingPowerPercent) / 100
+        return baseHealing + healingBonus
+    }
+
+    // Execute enemy turn (AI)
+    fun executeEnemyTurn() {
+        val combat = activeCombat ?: return
+
+        val enemy = combat.getCurrentParticipant() as? CombatParticipant.EnemyParticipant ?: return
+
+        // Simple AI: Attack random or weakest player
+        val target = when (enemy.enemy.aiType) {
+            EnemyAIType.SIMPLE -> combat.getAliveAllies().randomOrNull()
+            EnemyAIType.SMART -> combat.getAliveAllies().minByOrNull { it.getCurrentHP() }
+        } ?: return
+
+        val damage = calculateDamage(enemy.enemy.baseDamage, target.stats.getArmorClass())
+        target.stats.takeDamage(damage)
+
+        combat.addLog("${enemy.name} greift ${target.name} an und macht $damage Schaden!")
+
+        if (!target.isAlive()) {
+            combat.addLog("${target.name} wurde besiegt!", true)
+        }
+
+        advanceTurn(combat)
+    }
+
+    // Advance to next turn
+    private fun advanceTurn(combat: CombatState) {
+        // Check if combat ended
+        if (combat.checkCombatEnd()) {
+            endCombat()
+            return
+        }
+
+        // Move to next participant
+        combat.currentTurnIndex++
+
+        // If we've gone through all participants, start new round
+        if (combat.currentTurnIndex >= combat.turnOrder.size) {
+            startNewRound(combat)
+            combat.currentTurnIndex = 0
+        }
+
+        // Skip dead participants
+        while (combat.currentTurnIndex < combat.turnOrder.size &&
+               !combat.getCurrentParticipant()!!.isAlive()) {
+            combat.currentTurnIndex++
+        }
+
+        // Update player turn flag
+        combat.isPlayerTurn = combat.isCurrentPlayerTurn()
+
+        // Auto-execute enemy turns
+        if (!combat.isPlayerTurn && !combat.combatEnded) {
+            executeEnemyTurn()
+        }
+    }
+
+    // Start new round
+    private fun startNewRound(combat: CombatState) {
+        combat.currentRound++
+        combat.addLog("--- Runde ${combat.currentRound} ---", true)
+
+        // Reduce cooldowns
+        combat.abilityCooldowns.keys.forEach { ability ->
+            val current = combat.abilityCooldowns[ability] ?: 0
+            if (current > 0) {
+                combat.abilityCooldowns[ability] = current - 1
+            }
+        }
+
+        // Mana regeneration: 1 base per round
+        combat.playerParty.forEach { player ->
+            val manaRegen = 1  // Base regeneration
+            player.stats.currentMana = (player.stats.currentMana + manaRegen).coerceAtMost(player.stats.maxMana)
+        }
+    }
+
+    // End combat and apply rewards
+    private fun endCombat() {
+        val combat = activeCombat ?: return
+        val result = combat.combatResult ?: return
+
+        if (result.victory) {
+            // Apply XP
+            giveExperience(result.xpGained)
+
+            // Apply Divine Essence
+            divineEssence += result.essenceGained
+
+            // Track completion
+            when (combat.combatType) {
+                CombatType.STORY -> {
+                    storyCompletedCount++
+                    if (combat.isTutorial) {
+                        hasCompletedTutorialCombat = true
+                    }
+                }
+                CombatType.AUFTRAG -> {
+                    auftragCompletedCount++
+                }
+            }
+
+            // After combat: restore 50% of lost mana
+            characterStats?.let { stats ->
+                val lostMana = stats.maxMana - stats.currentMana
+                val restoreAmount = lostMana / 2
+                stats.currentMana = (stats.currentMana + restoreAmount).coerceAtMost(stats.maxMana)
+                combat.addLog("Nach dem Kampf: $restoreAmount Mana wiederhergestellt")
+            }
+
+            combat.addLog("Belohnungen: +${result.xpGained} XP, +${result.essenceGained} DE", true)
+        } else {
+            // Defeat - restore player to 50% HP for next attempt
+            characterStats?.let { stats ->
+                stats.currentHP = stats.maxHP / 2
+                stats.currentMana = stats.maxMana / 2
+            }
+        }
+    }
+
+    // Get tutorial combat
+    fun getTutorialCombat(): CombatState? {
+        if (hasCompletedTutorialCombat) return null
+        val enemy = MonsterTemplates.createTutorialBandit()
+        return startCombat(CombatType.STORY, listOf(enemy))
+    }
+
+    // Get random story combat
+    fun getStoryCombat(playerLevel: Int = characterStats?.level ?: 1): CombatState? {
+        val enemyCount = (1..2).random()
+        val enemies = List(enemyCount) {
+            MonsterTemplates.getRandomEnemy(playerLevel, smartAI = true)
+        }
+        return startCombat(CombatType.STORY, enemies)
+    }
+
+    // Get random auftrag combat
+    fun getAuftragCombat(playerLevel: Int = characterStats?.level ?: 1): CombatState? {
+        // Every 10th auftrag has smart AI
+        val nextCount = auftragCompletedCount + 1
+        val useSmartAI = nextCount % 10 == 0
+
+        val enemyCount = (1..3).random()
+        val enemies = List(enemyCount) {
+            MonsterTemplates.getRandomEnemy(playerLevel, smartAI = useSmartAI)
+        }
+        return startCombat(CombatType.AUFTRAG, enemies)
+    }
+
+    // Clear active combat
+    fun clearActiveCombat() {
+        activeCombat = null
+    }
+
     // ========== Extra Dice System ==========
 
     // Get current number of extra dice
@@ -2724,5 +3059,338 @@ data class CharacterLoadout(
     fun clear() {
         normalAbilities.fill(null)
         ultimateAbility = null
+    }
+}
+
+// ==================== COMBAT SYSTEM ====================
+
+// Monster Type
+enum class MonsterType(val displayName: String) {
+    BEAST("Bestie"),
+    UNDEAD("Untot"),
+    DEMON("Dämon"),
+    HUMANOID("Humanoider"),
+    DRAGON("Drache"),
+    ELEMENTAL("Elementar")
+}
+
+// Enemy AI Type
+enum class EnemyAIType {
+    SIMPLE,  // Random attacks
+    SMART    // Targets weakest, uses abilities tactically
+}
+
+// Monster/Enemy
+data class Enemy(
+    val name: String,
+    val type: MonsterType,
+    val level: Int,
+    var maxHP: Int,
+    var currentHP: Int,
+    val armor: Int,  // AC
+    val baseDamage: Int,
+    val initiative: Int,
+    val aiType: EnemyAIType = EnemyAIType.SIMPLE,
+    val xpReward: Int,
+    val goldReward: Int = 0,
+    val essenceReward: Int = 0,
+    var abilities: List<EnemyAbility> = emptyList()
+) {
+    fun isAlive(): Boolean = currentHP > 0
+    fun isDead(): Boolean = !isAlive()
+
+    fun takeDamage(damage: Int): Int {
+        val actualDamage = damage.coerceAtLeast(0)
+        currentHP -= actualDamage
+        if (currentHP < 0) currentHP = 0
+        return actualDamage
+    }
+
+    fun heal(amount: Int) {
+        currentHP = (currentHP + amount).coerceAtMost(maxHP)
+    }
+
+    fun getHPPercent(): Int = if (maxHP > 0) (currentHP * 100 / maxHP) else 0
+}
+
+// Enemy Ability
+data class EnemyAbility(
+    val name: String,
+    val damage: Int = 0,
+    val healing: Int = 0,
+    val cooldown: Int = 3,  // Rounds
+    var currentCooldown: Int = 0,
+    val targetType: TargetType = TargetType.SINGLE_ENEMY
+)
+
+// Target Type for abilities
+enum class TargetType {
+    SINGLE_ENEMY,   // Target one enemy
+    ALL_ENEMIES,    // AOE
+    SELF,           // Self-buff/heal
+    ALLY,           // Target ally
+    ALL_ALLIES      // Group buff/heal
+}
+
+// Combat Participant (wrapper for both players and enemies)
+sealed class CombatParticipant {
+    abstract val name: String
+    abstract val initiative: Int
+    abstract fun isAlive(): Boolean
+    abstract fun getCurrentHP(): Int
+    abstract fun getMaxHP(): Int
+
+    data class PlayerParticipant(
+        val stats: CharacterStats,
+        val loadout: CharacterLoadout,
+        val playerClass: PlayerClass,
+        override val name: String = "Du"
+    ) : CombatParticipant() {
+        override val initiative: Int get() = stats.getInitiative()
+        override fun isAlive(): Boolean = stats.currentHP > 0
+        override fun getCurrentHP(): Int = stats.currentHP
+        override fun getMaxHP(): Int = stats.maxHP
+    }
+
+    data class EnemyParticipant(
+        val enemy: Enemy,
+        val index: Int  // Which enemy in the group (0, 1, 2...)
+    ) : CombatParticipant() {
+        override val name: String get() = if (index > 0) "${enemy.name} ${index + 1}" else enemy.name
+        override val initiative: Int get() = enemy.initiative
+        override fun isAlive(): Boolean = enemy.isAlive()
+        override fun getCurrentHP(): Int = enemy.currentHP
+        override fun getMaxHP(): Int = enemy.maxHP
+    }
+}
+
+// Combat Type
+enum class CombatType {
+    STORY,      // Story kämpfe - immer smart AI
+    AUFTRAG     // Aufträge - erste 9 simple, dann jeder 10. smart
+}
+
+// Combat Result
+data class CombatResult(
+    val victory: Boolean,
+    val xpGained: Int,
+    val goldGained: Int,
+    val essenceGained: Int,
+    val lootDropped: Equipment? = null,
+    val roundsLasted: Int
+)
+
+// Combat Log Entry
+data class CombatLogEntry(
+    val round: Int,
+    val message: String,
+    val isImportant: Boolean = false
+)
+
+// Combat State (active combat instance)
+data class CombatState(
+    val combatType: CombatType,
+    val isTutorial: Boolean = false,
+    val playerParty: MutableList<CombatParticipant.PlayerParticipant>,
+    val enemyParty: MutableList<CombatParticipant.EnemyParticipant>,
+    var currentRound: Int = 0,
+    var turnOrder: List<CombatParticipant> = emptyList(),
+    var currentTurnIndex: Int = 0,
+    val combatLog: MutableList<CombatLogEntry> = mutableListOf(),
+    val abilityCooldowns: MutableMap<PaladinAbility, Int> = mutableMapOf(),
+    var isPlayerTurn: Boolean = false,
+    var combatEnded: Boolean = false,
+    var combatResult: CombatResult? = null,
+    var auftragCount: Int = 0  // Track aufträge for smart AI every 10
+) {
+    fun getCurrentParticipant(): CombatParticipant? = turnOrder.getOrNull(currentTurnIndex)
+
+    fun isCurrentPlayerTurn(): Boolean = getCurrentParticipant() is CombatParticipant.PlayerParticipant
+
+    fun getAliveAllies(): List<CombatParticipant.PlayerParticipant> =
+        playerParty.filter { it.isAlive() }
+
+    fun getAliveEnemies(): List<CombatParticipant.EnemyParticipant> =
+        enemyParty.filter { it.isAlive() }
+
+    fun addLog(message: String, important: Boolean = false) {
+        combatLog.add(CombatLogEntry(currentRound, message, important))
+    }
+
+    fun checkCombatEnd(): Boolean {
+        val allEnemiesDead = enemyParty.all { it.enemy.isDead() }
+        val allPlayersDead = playerParty.all { !it.isAlive() }
+
+        if (allEnemiesDead || allPlayersDead) {
+            combatEnded = true
+
+            if (allEnemiesDead) {
+                // Victory!
+                val totalXP = enemyParty.sumOf { it.enemy.xpReward }
+                val totalGold = enemyParty.sumOf { it.enemy.goldReward }
+                val totalEssence = enemyParty.sumOf { it.enemy.essenceReward }
+
+                combatResult = CombatResult(
+                    victory = true,
+                    xpGained = totalXP,
+                    goldGained = totalGold,
+                    essenceGained = totalEssence,
+                    roundsLasted = currentRound
+                )
+                addLog("🎉 SIEG! Du hast gewonnen!", true)
+            } else {
+                // Defeat
+                combatResult = CombatResult(
+                    victory = false,
+                    xpGained = 0,
+                    goldGained = 0,
+                    essenceGained = 0,
+                    roundsLasted = currentRound
+                )
+                addLog("💀 NIEDERLAGE! Du wurdest besiegt!", true)
+            }
+            return true
+        }
+        return false
+    }
+}
+
+// Monster Templates für verschiedene Level-Bereiche
+object MonsterTemplates {
+    // Level 1-5: Starter Enemies
+    fun createGoblin(level: Int): Enemy {
+        val hp = 20 + (level * 5)
+        return Enemy(
+            name = "Goblin",
+            type = MonsterType.HUMANOID,
+            level = level,
+            maxHP = hp,
+            currentHP = hp,
+            armor = 12 + level,
+            baseDamage = 5 + level,
+            initiative = 2,
+            aiType = EnemyAIType.SIMPLE,
+            xpReward = 50 * level,
+            goldReward = 10 * level,
+            essenceReward = 0
+        )
+    }
+
+    fun createWolf(level: Int): Enemy {
+        val hp = 25 + (level * 6)
+        return Enemy(
+            name = "Wolf",
+            type = MonsterType.BEAST,
+            level = level,
+            maxHP = hp,
+            currentHP = hp,
+            armor = 13 + level,
+            baseDamage = 6 + level,
+            initiative = 3,
+            aiType = EnemyAIType.SIMPLE,
+            xpReward = 60 * level,
+            goldReward = 5 * level,
+            essenceReward = 0
+        )
+    }
+
+    fun createSkeleton(level: Int): Enemy {
+        val hp = 30 + (level * 5)
+        return Enemy(
+            name = "Skelett",
+            type = MonsterType.UNDEAD,
+            level = level,
+            maxHP = hp,
+            currentHP = hp,
+            armor = 14 + level,
+            baseDamage = 7 + level,
+            initiative = 1,
+            aiType = EnemyAIType.SIMPLE,
+            xpReward = 70 * level,
+            goldReward = 15 * level,
+            essenceReward = 1
+        )
+    }
+
+    // Level 5-10: Mid-tier
+    fun createOrc(level: Int): Enemy {
+        val hp = 50 + (level * 8)
+        return Enemy(
+            name = "Orc",
+            type = MonsterType.HUMANOID,
+            level = level,
+            maxHP = hp,
+            currentHP = hp,
+            armor = 15 + level,
+            baseDamage = 10 + (level * 2),
+            initiative = 1,
+            aiType = EnemyAIType.SMART,
+            xpReward = 100 * level,
+            goldReward = 20 * level,
+            essenceReward = 2
+        )
+    }
+
+    fun createDarkMage(level: Int): Enemy {
+        val hp = 40 + (level * 6)
+        return Enemy(
+            name = "Dunkler Magier",
+            type = MonsterType.HUMANOID,
+            level = level,
+            maxHP = hp,
+            currentHP = hp,
+            armor = 12 + level,
+            baseDamage = 12 + (level * 2),
+            initiative = 4,
+            aiType = EnemyAIType.SMART,
+            xpReward = 120 * level,
+            goldReward = 30 * level,
+            essenceReward = 3,
+            abilities = listOf(
+                EnemyAbility("Feuerball", damage = 20 + level * 3, cooldown = 3)
+            )
+        )
+    }
+
+    // Boss: Story Tutorial
+    fun createTutorialBandit(): Enemy {
+        return Enemy(
+            name = "Bandit",
+            type = MonsterType.HUMANOID,
+            level = 1,
+            maxHP = 30,
+            currentHP = 30,
+            armor = 12,
+            baseDamage = 4,
+            initiative = 2,
+            aiType = EnemyAIType.SIMPLE,
+            xpReward = 100,
+            goldReward = 25,
+            essenceReward = 1
+        )
+    }
+
+    // Get random enemy for level range
+    fun getRandomEnemy(level: Int, smartAI: Boolean = false): Enemy {
+        val enemy = when (level) {
+            in 1..5 -> listOf(
+                createGoblin(level),
+                createWolf(level),
+                createSkeleton(level)
+            ).random()
+            in 6..10 -> listOf(
+                createOrc(level),
+                createDarkMage(level),
+                createSkeleton(level)
+            ).random()
+            else -> createOrc(level.coerceAtMost(20))
+        }
+
+        // Override AI if requested
+        if (smartAI && enemy.aiType == EnemyAIType.SIMPLE) {
+            return enemy.copy(aiType = EnemyAIType.SMART)
+        }
+
+        return enemy
     }
 }

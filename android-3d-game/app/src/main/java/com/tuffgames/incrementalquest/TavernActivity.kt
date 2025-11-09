@@ -303,6 +303,112 @@ D&D ATTRIBUTE:
                 xpText.setPadding(0, 5, 0, 10)
                 card.addView(xpText)
             }
+
+            // COMBAT SECTION - nur wenn Klasse gewählt
+            // Divider
+            val combatDivider = TextView(this)
+            combatDivider.text = "═══ ⚔️ KÄMPFE ⚔️ ═══"
+            combatDivider.textSize = 14f
+            combatDivider.setTextColor(Color.RED)
+            combatDivider.gravity = Gravity.CENTER
+            combatDivider.setPadding(0, 20, 0, 10)
+            card.addView(combatDivider)
+
+            val combatInfoText = TextView(this)
+            combatInfoText.text = """
+Patrick lehnt sich über die Theke und zeigt auf ein schwarzes Brett:
+
+"Hier kannst du deine Fähigkeiten unter Beweis stellen!"
+
+📖 STORY: Epische Abenteuer mit smarter KI
+💼 AUFTRÄGE: Zufallskämpfe für Belohnungen
+            """.trimIndent()
+            combatInfoText.textSize = 12f
+            combatInfoText.setTextColor(Color.rgb(220, 220, 220))
+            combatInfoText.setPadding(10, 5, 10, 15)
+            card.addView(combatInfoText)
+
+            // Story Combat Button
+            val storyCombatButton = Button(this)
+            storyCombatButton.text = """
+📖 STORY-KAMPF
+${if (!GameState.getActiveCombat()?.isTutorial?.let { it } == true && GameState.getCharacterStats()?.level == 1)
+    "⚠️ TUTORIAL verfügbar!" else "Episches Abenteuer"}
+            """.trimIndent()
+            storyCombatButton.textSize = 14f
+            storyCombatButton.setBackgroundColor(Color.rgb(100, 40, 40))
+            storyCombatButton.setTextColor(Color.WHITE)
+            storyCombatButton.setPadding(10, 10, 10, 10)
+            storyCombatButton.setOnClickListener {
+                // Check if loadout is complete
+                if (!GameState.isLoadoutComplete()) {
+                    val alert = android.app.AlertDialog.Builder(this)
+                    alert.setTitle("⚠️ Loadout unvollständig!")
+                    alert.setMessage("Du musst erst deine Fähigkeiten auswählen!\n\nGehe zu 'Loadout konfigurieren'")
+                    alert.setPositiveButton("OK", null)
+                    alert.show()
+                    return@setOnClickListener
+                }
+
+                // Start Story Combat
+                val combat = if (GameState.getCharacterStats()?.level == 1) {
+                    GameState.getTutorialCombat()
+                } else {
+                    GameState.getStoryCombat()
+                }
+
+                if (combat != null) {
+                    val intent = Intent(this, CombatActivity::class.java)
+                    startActivity(intent)
+                }
+            }
+            card.addView(storyCombatButton)
+
+            // Auftrag Combat Button
+            val auftragCombatButton = Button(this)
+            auftragCombatButton.text = """
+💼 AUFTRAG
+Zufallskampf für Belohnungen
+            """.trimIndent()
+            auftragCombatButton.textSize = 14f
+            auftragCombatButton.setBackgroundColor(Color.rgb(40, 40, 100))
+            auftragCombatButton.setTextColor(Color.WHITE)
+            auftragCombatButton.setPadding(10, 10, 10, 10)
+            auftragCombatButton.setOnClickListener {
+                // Check if loadout is complete
+                if (!GameState.isLoadoutComplete()) {
+                    val alert = android.app.AlertDialog.Builder(this)
+                    alert.setTitle("⚠️ Loadout unvollständig!")
+                    alert.setMessage("Du musst erst deine Fähigkeiten auswählen!\n\nGehe zu 'Loadout konfigurieren'")
+                    alert.setPositiveButton("OK", null)
+                    alert.show()
+                    return@setOnClickListener
+                }
+
+                // Start Auftrag Combat
+                val combat = GameState.getAuftragCombat()
+                if (combat != null) {
+                    val intent = Intent(this, CombatActivity::class.java)
+                    startActivity(intent)
+                }
+            }
+            card.addView(auftragCombatButton)
+
+            // Loadout Config Button (wichtig!)
+            val loadoutButton = Button(this)
+            loadoutButton.text = "⚡ Loadout konfigurieren"
+            loadoutButton.textSize = 12f
+            loadoutButton.setBackgroundColor(Color.rgb(60, 60, 60))
+            loadoutButton.setTextColor(Color.YELLOW)
+            loadoutButton.setPadding(10, 5, 10, 5)
+            loadoutButton.setOnClickListener {
+                val alert = android.app.AlertDialog.Builder(this)
+                alert.setTitle("🚧 In Entwicklung")
+                alert.setMessage("Loadout-Konfiguration kommt im nächsten Update!\n\nFür jetzt: Standard-Loadout wird verwendet.")
+                alert.setPositiveButton("OK", null)
+                alert.show()
+            }
+            card.addView(loadoutButton)
         } else {
             // Paladin-Button (nur beim ersten Mal)
             val paladinButton = Button(this)
