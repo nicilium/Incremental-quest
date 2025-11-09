@@ -817,7 +817,7 @@ object GameState {
         if (!equipment.canCombine()) return Int.MAX_VALUE
         val baseCost = 100  // Base fusion cost in gold
         val rarityMultiplier = equipment.rarity.getMultiplier()
-        return baseCost * rarityMultiplier
+        return (baseCost * rarityMultiplier).toInt()
     }
 
     // Combine 3 same items to upgrade rarity (costs gold)
@@ -873,9 +873,18 @@ object GameState {
     // Upgrade equipment tier (costs DE)
     fun getEquipmentUpgradeCost(equipment: Equipment): Int {
         if (!equipment.canUpgrade()) return Int.MAX_VALUE
-        val baseCost = 50  // Base cost in gold
+
+        val baseCost = 50.0  // Base cost in gold
         val rarityMultiplier = equipment.rarity.getMultiplier()
-        return baseCost * rarityMultiplier * equipment.tier
+        val currentTier = equipment.tier
+
+        // Formula: BaseKosten × Seltenheits-Multiplikator × (Level² / 10) × 1.03^Level
+        val quadraticComponent = (currentTier * currentTier) / 10.0
+        val exponentialComponent = kotlin.math.pow(1.03, currentTier.toDouble())
+
+        val cost = baseCost * rarityMultiplier * quadraticComponent * exponentialComponent
+
+        return cost.toInt().coerceAtLeast(10)  // Minimum 10 Gold
     }
 
     fun canUpgradeEquipment(equipment: Equipment): Boolean {
@@ -918,26 +927,35 @@ object GameState {
         // Random set from available sets
         val set = availableSets.random()
 
-        // Random rarity (weighted toward lower rarities)
+        // Random rarity (weighted toward lower rarities, includes GELB)
         val rarity = getRandomRarity()
 
-        // Random tier 1-3 for lootbox drops
-        val tier = (1..3).random()
+        // Random tier based on rarity (higher rarity = higher tier potential)
+        val maxTierForRarity = when(rarity) {
+            EquipmentRarity.GRAU -> 5
+            EquipmentRarity.WEISS -> 10
+            EquipmentRarity.GRUEN -> 15
+            EquipmentRarity.BLAU -> 20
+            EquipmentRarity.LILA -> 30
+            EquipmentRarity.GELB -> 50
+        }
+        val tier = (1..maxTierForRarity).random().coerceAtMost(rarity.getMaxUpgradeLevel())
 
         val equipment = Equipment(slot, set, rarity, tier)
         addItemToInventory(equipment)
         return equipment
     }
 
-    // Get random rarity with weighted probabilities
+    // Get random rarity with weighted probabilities (includes GELB at 0.5%)
     private fun getRandomRarity(): EquipmentRarity {
-        val roll = (1..100).random()
+        val roll = (1..1000).random()  // Use 1000 for finer control
         return when {
-            roll <= 50 -> EquipmentRarity.GRAU    // 50%
-            roll <= 75 -> EquipmentRarity.WEISS   // 25%
-            roll <= 90 -> EquipmentRarity.GRUEN   // 15%
-            roll <= 98 -> EquipmentRarity.BLAU    // 8%
-            else -> EquipmentRarity.LILA          // 2%
+            roll <= 500 -> EquipmentRarity.GRAU    // 50.0%
+            roll <= 750 -> EquipmentRarity.WEISS   // 25.0%
+            roll <= 900 -> EquipmentRarity.GRUEN   // 15.0%
+            roll <= 970 -> EquipmentRarity.BLAU    // 7.0%
+            roll <= 995 -> EquipmentRarity.LILA    // 2.5%
+            else -> EquipmentRarity.GELB           // 0.5% (sehr selten!)
         }
     }
 
@@ -2422,23 +2440,36 @@ enum class EquipmentRarity(val displayName: String, val color: Int, val combineC
     WEISS("Weiß", android.graphics.Color.WHITE, 3),
     GRUEN("Grün", android.graphics.Color.rgb(50, 205, 50), 3),
     BLAU("Blau", android.graphics.Color.rgb(30, 144, 255), 3),
-    LILA("Lila", android.graphics.Color.rgb(138, 43, 226), 0); // Maximale Rarity (5. Stufe)
+    LILA("Lila", android.graphics.Color.rgb(138, 43, 226), 3),
+    GELB("Gold", android.graphics.Color.rgb(255, 215, 0), 0); // Maximale Rarity (6. Stufe)
 
     fun next(): EquipmentRarity? = when(this) {
         GRAU -> WEISS
         WEISS -> GRUEN
         GRUEN -> BLAU
         BLAU -> LILA
-        LILA -> null  // Max erreicht
+        LILA -> GELB
+        GELB -> null  // Max erreicht
     }
 
-    // Multiplier für Stats (1, 2, 4, 8, 16)
-    fun getMultiplier(): Int = when(this) {
-        GRAU -> 1
-        WEISS -> 2
-        GRUEN -> 4
-        BLAU -> 8
-        LILA -> 16
+    // Multiplier für Stats (1, 1.5, 2.5, 4, 7, 10)
+    fun getMultiplier(): Double = when(this) {
+        GRAU -> 1.0
+        WEISS -> 1.5
+        GRUEN -> 2.5
+        BLAU -> 4.0
+        LILA -> 7.0
+        GELB -> 10.0
+    }
+
+    // Max upgrade level for this rarity
+    fun getMaxUpgradeLevel(): Int = when(this) {
+        GRAU -> 10    // Upgrades 1-10
+        WEISS -> 20   // Upgrades 1-20
+        GRUEN -> 35   // Upgrades 1-35
+        BLAU -> 50    // Upgrades 1-50
+        LILA -> 75    // Upgrades 1-75
+        GELB -> 100   // Upgrades 1-100
     }
 }
 
@@ -2484,13 +2515,13 @@ data class Equipment(
     val slot: EquipmentSlot,
     val set: EquipmentSet,
     var rarity: EquipmentRarity = EquipmentRarity.GRAU,
-    var tier: Int = 1  // Stufe 1-10
+    var tier: Int = 1  // Stufe 1-100 (abhängig von Rarity)
 ) {
-    fun canUpgrade(): Boolean = tier < 10
-    fun canCombine(): Boolean = rarity != EquipmentRarity.LILA
+    fun canUpgrade(): Boolean = tier < rarity.getMaxUpgradeLevel()
+    fun canCombine(): Boolean = rarity != EquipmentRarity.GELB
 
-    // Get rarity multiplier (1, 2, 4, 8, 16)
-    private fun getRarityMultiplier(): Int = rarity.getMultiplier()
+    // Get rarity multiplier (1.0, 1.5, 2.5, 4.0, 7.0, 10.0)
+    private fun getRarityMultiplier(): Double = rarity.getMultiplier()
 
     // Calculate all stats for this equipment piece
     fun getStats(): EquipmentStats {
@@ -3152,20 +3183,32 @@ internal fun generateCombatEquipmentDrop(enemyLevel: Int, playerClass: PlayerCla
                 else -> EquipmentRarity.BLAU               // 15%
             }
         }
-        else -> {
+        enemyLevel <= 15 -> {
             val rarityRoll = (1..100).random()
             when {
-                rarityRoll <= 20 -> EquipmentRarity.GRAU   // 20%
-                rarityRoll <= 45 -> EquipmentRarity.WEISS  // 25%
-                rarityRoll <= 70 -> EquipmentRarity.GRUEN  // 25%
-                rarityRoll <= 90 -> EquipmentRarity.BLAU   // 20%
-                else -> EquipmentRarity.LILA               // 10%
+                rarityRoll <= 15 -> EquipmentRarity.GRAU   // 15%
+                rarityRoll <= 35 -> EquipmentRarity.WEISS  // 20%
+                rarityRoll <= 60 -> EquipmentRarity.GRUEN  // 25%
+                rarityRoll <= 85 -> EquipmentRarity.BLAU   // 25%
+                else -> EquipmentRarity.LILA               // 15%
+            }
+        }
+        else -> { // Level 16+
+            val rarityRoll = (1..100).random()
+            when {
+                rarityRoll <= 10 -> EquipmentRarity.GRAU   // 10%
+                rarityRoll <= 25 -> EquipmentRarity.WEISS  // 15%
+                rarityRoll <= 45 -> EquipmentRarity.GRUEN  // 20%
+                rarityRoll <= 70 -> EquipmentRarity.BLAU   // 25%
+                rarityRoll <= 95 -> EquipmentRarity.LILA   // 25%
+                else -> EquipmentRarity.GELB               // 5% (sehr selten!)
             }
         }
     }
 
-    // Tier based on enemy level
-    val tier = ((enemyLevel / 2) + 1).coerceIn(1, 10)
+    // Tier based on enemy level (up to 100)
+    val maxTier = rarity.getMaxUpgradeLevel()
+    val tier = ((enemyLevel / 2) + 1).coerceIn(1, maxTier)
 
     return Equipment(slot, set, rarity, tier)
 }
