@@ -783,12 +783,16 @@ object GameState {
         // Equip new item
         equippedItems[equipment.slot] = equipment
         inventory.remove(equipment)
+        // Apply equipment bonuses to character
+        applyEquipmentBonuses()
     }
 
     fun unequipItem(slot: EquipmentSlot) {
         equippedItems[slot]?.let { item ->
             inventory.add(item)
             equippedItems.remove(slot)
+            // Update equipment bonuses
+            applyEquipmentBonuses()
         }
     }
 
@@ -841,14 +845,7 @@ object GameState {
     fun getEquipmentUpgradeCost(equipment: Equipment): Int {
         if (!equipment.canUpgrade()) return Int.MAX_VALUE
         val baseCost = 10
-        val rarityMultiplier = when(equipment.rarity) {
-            EquipmentRarity.GRAU -> 1
-            EquipmentRarity.WEISS -> 2
-            EquipmentRarity.GRUEN -> 4
-            EquipmentRarity.BLAU -> 8
-            EquipmentRarity.LILA -> 16
-            EquipmentRarity.GELB -> 32
-        }
+        val rarityMultiplier = equipment.rarity.getMultiplier()
         return baseCost * rarityMultiplier * equipment.tier
     }
 
@@ -861,7 +858,133 @@ object GameState {
         val cost = getEquipmentUpgradeCost(equipment)
         divineEssence -= cost
         equipment.tier++
+        // If this equipment is currently equipped, update bonuses
+        if (equippedItems.values.contains(equipment)) {
+            applyEquipmentBonuses()
+        }
         return true
+    }
+
+    // ========== Lootbox System ==========
+
+    // Get lootbox cost (low cost as requested by user)
+    fun getLootboxCost(): Int = 5  // 5 DE per box
+
+    // Can afford lootbox?
+    fun canAffordLootbox(): Boolean = divineEssence >= getLootboxCost()
+
+    // Buy lootbox - returns random equipment or null if can't afford
+    fun buyLootbox(): Equipment? {
+        if (!canAffordLootbox()) return null
+
+        val playerClass = selectedClass ?: return null
+        val availableSets = playerClass.getAvailableSets()
+        if (availableSets.isEmpty()) return null
+
+        divineEssence -= getLootboxCost()
+
+        // Random slot
+        val slot = EquipmentSlot.values().random()
+
+        // Random set from available sets
+        val set = availableSets.random()
+
+        // Random rarity (weighted toward lower rarities)
+        val rarity = getRandomRarity()
+
+        // Random tier 1-3 for lootbox drops
+        val tier = (1..3).random()
+
+        val equipment = Equipment(slot, set, rarity, tier)
+        addItemToInventory(equipment)
+        return equipment
+    }
+
+    // Get random rarity with weighted probabilities
+    private fun getRandomRarity(): EquipmentRarity {
+        val roll = (1..100).random()
+        return when {
+            roll <= 50 -> EquipmentRarity.GRAU    // 50%
+            roll <= 75 -> EquipmentRarity.WEISS   // 25%
+            roll <= 90 -> EquipmentRarity.GRUEN   // 15%
+            roll <= 98 -> EquipmentRarity.BLAU    // 8%
+            else -> EquipmentRarity.LILA          // 2%
+        }
+    }
+
+    // ========== Set Bonus System ==========
+
+    // Get number of equipped pieces from a specific set
+    fun getEquippedSetPieces(set: EquipmentSet): Int {
+        return equippedItems.values.count { it.set == set }
+    }
+
+    // Check if player has set bonus active
+    fun hasSetBonus(set: EquipmentSet, pieces: Int): Boolean {
+        return getEquippedSetPieces(set) >= pieces
+    }
+
+    // Get all active set bonuses
+    fun getActiveSetBonuses(): Map<EquipmentSet, Int> {
+        val setBonuses = mutableMapOf<EquipmentSet, Int>()
+        equippedItems.values.forEach { equipment ->
+            setBonuses[equipment.set] = setBonuses.getOrDefault(equipment.set, 0) + 1
+        }
+        return setBonuses.filter { it.value >= 2 }  // Only show sets with 2+ pieces
+    }
+
+    // Calculate total equipment stats (all equipped items combined)
+    fun getTotalEquipmentStats(): EquipmentStats {
+        val totalStats = EquipmentStats()
+
+        equippedItems.values.forEach { equipment ->
+            val itemStats = equipment.getStats()
+            totalStats.acBonus += itemStats.acBonus
+            totalStats.hpBonus += itemStats.hpBonus
+            totalStats.manaBonus += itemStats.manaBonus
+            totalStats.weaponDamage += itemStats.weaponDamage
+            totalStats.strengthBonus += itemStats.strengthBonus
+            totalStats.dexterityBonus += itemStats.dexterityBonus
+            totalStats.constitutionBonus += itemStats.constitutionBonus
+            totalStats.intelligenceBonus += itemStats.intelligenceBonus
+            totalStats.wisdomBonus += itemStats.wisdomBonus
+            totalStats.charismaBonus += itemStats.charismaBonus
+            totalStats.healingPowerPercent += itemStats.healingPowerPercent
+            totalStats.critChancePercent += itemStats.critChancePercent
+        }
+
+        return totalStats
+    }
+
+    // Apply equipment bonuses to character stats (called when equipping/unequipping)
+    fun applyEquipmentBonuses() {
+        val stats = characterStats ?: return
+        val equipStats = getTotalEquipmentStats()
+
+        // Apply AC bonus
+        stats.armorBonus = equipStats.acBonus
+
+        // Apply HP bonus (need to track base max HP separately)
+        // For now, we recalculate max HP with equipment
+        val playerClass = selectedClass ?: return
+        val baseMaxHP = playerClass.baseHP + (stats.level - 1) * (playerClass.hitDice.average() + stats.getModifier(DndAttribute.CONSTITUTION))
+        stats.maxHP = baseMaxHP + equipStats.hpBonus
+
+        // Apply mana bonus
+        val baseMana = calculateMaxMana(playerClass, mapOf(
+            DndAttribute.STRENGTH to stats.strength,
+            DndAttribute.DEXTERITY to stats.dexterity,
+            DndAttribute.CONSTITUTION to stats.constitution,
+            DndAttribute.INTELLIGENCE to stats.intelligence,
+            DndAttribute.WISDOM to stats.wisdom,
+            DndAttribute.CHARISMA to stats.charisma
+        ), stats.level)
+        stats.maxMana = baseMana + equipStats.manaBonus
+
+        // Apply attribute bonuses (these modify the base attributes)
+        // Note: We need to track base attributes separately to avoid stacking
+        // For now, equipment bonuses are added on top of base stats
+        // This will be refined when we add proper base stat tracking
     }
 
     // Loadout functions
@@ -1914,22 +2037,29 @@ data class EssenceBuff(
 // Player Class System (5 classes)
 // ==================== RPG SYSTEM ====================
 
-// Equipment Rarity (kann kombiniert werden: 3x GRAU = 1x WEISS, etc.)
+// Equipment Rarity (5 Stufen, kann kombiniert werden: 3x GRAU = 1x WEISS, etc.)
 enum class EquipmentRarity(val displayName: String, val color: Int, val combineCount: Int) {
     GRAU("Grau", android.graphics.Color.GRAY, 3),
     WEISS("Weiß", android.graphics.Color.WHITE, 3),
     GRUEN("Grün", android.graphics.Color.rgb(50, 205, 50), 3),
     BLAU("Blau", android.graphics.Color.rgb(30, 144, 255), 3),
-    LILA("Lila", android.graphics.Color.rgb(138, 43, 226), 3),
-    GELB("Gelb", android.graphics.Color.rgb(255, 215, 0), 0); // Maximale Rarity
+    LILA("Lila", android.graphics.Color.rgb(138, 43, 226), 0); // Maximale Rarity (5. Stufe)
 
     fun next(): EquipmentRarity? = when(this) {
         GRAU -> WEISS
         WEISS -> GRUEN
         GRUEN -> BLAU
         BLAU -> LILA
-        LILA -> GELB
-        GELB -> null
+        LILA -> null  // Max erreicht
+    }
+
+    // Multiplier für Stats (1, 2, 4, 8, 16)
+    fun getMultiplier(): Int = when(this) {
+        GRAU -> 1
+        WEISS -> 2
+        GRUEN -> 4
+        BLAU -> 8
+        LILA -> 16
     }
 }
 
@@ -1954,7 +2084,23 @@ enum class EquipmentSet(
     fun hasHiddenEffect(): Boolean = hiddenEffect != null
 }
 
-// Equipment Item
+// Equipment Stats Container
+data class EquipmentStats(
+    var acBonus: Int = 0,
+    var hpBonus: Int = 0,
+    var manaBonus: Int = 0,
+    var weaponDamage: Int = 0,
+    var strengthBonus: Int = 0,
+    var dexterityBonus: Int = 0,
+    var constitutionBonus: Int = 0,
+    var intelligenceBonus: Int = 0,
+    var wisdomBonus: Int = 0,
+    var charismaBonus: Int = 0,
+    var healingPowerPercent: Int = 0,  // Percentage bonus
+    var critChancePercent: Int = 0      // Percentage bonus
+)
+
+// Equipment Item (mit vollständigen Stats)
 data class Equipment(
     val slot: EquipmentSlot,
     val set: EquipmentSet,
@@ -1962,20 +2108,84 @@ data class Equipment(
     var tier: Int = 1  // Stufe 1-10
 ) {
     fun canUpgrade(): Boolean = tier < 10
-    fun canCombine(): Boolean = rarity != EquipmentRarity.GELB
+    fun canCombine(): Boolean = rarity != EquipmentRarity.LILA
 
-    fun getStatValue(): Int {
-        // Base value increases with rarity and tier
-        val rarityMultiplier = when(rarity) {
-            EquipmentRarity.GRAU -> 1
-            EquipmentRarity.WEISS -> 2
-            EquipmentRarity.GRUEN -> 4
-            EquipmentRarity.BLAU -> 8
-            EquipmentRarity.LILA -> 16
-            EquipmentRarity.GELB -> 32
+    // Get rarity multiplier (1, 2, 4, 8, 16)
+    private fun getRarityMultiplier(): Int = rarity.getMultiplier()
+
+    // Calculate all stats for this equipment piece
+    fun getStats(): EquipmentStats {
+        val stats = EquipmentStats()
+        val rarityMult = getRarityMultiplier()
+
+        when(set) {
+            // SET 1: Heiliger Beschützer (Tank)
+            EquipmentSet.PALADIN_SET1 -> when(slot) {
+                EquipmentSlot.WEAPON -> {  // Schild des Glaubens
+                    stats.acBonus = (2 + (rarityMult * 0.5) + (tier * 0.2)).toInt()
+                    stats.hpBonus = (10 + (rarityMult * 5) + (tier * 3)).toInt()
+                }
+                EquipmentSlot.ARMOR -> {  // Plattenrüstung des Wächters
+                    stats.acBonus = (8 + (rarityMult * 1.0) + (tier * 0.5)).toInt()
+                    stats.hpBonus = (15 + (rarityMult * 8) + (tier * 5)).toInt()
+                    stats.constitutionBonus = (2 + (rarityMult / 8)).toInt()
+                }
+                EquipmentSlot.ACCESSORY -> {  // Ring der Unnachgiebigkeit
+                    stats.hpBonus = (5 + (rarityMult * 3) + (tier * 2)).toInt()
+                    stats.strengthBonus = (1 + (rarityMult / 16)).toInt()
+                    stats.constitutionBonus = (1 + (rarityMult / 16)).toInt()
+                }
+            }
+
+            // SET 2: Lichträcher (Balance)
+            EquipmentSet.PALADIN_SET2 -> when(slot) {
+                EquipmentSlot.WEAPON -> {  // Hammer der Vergeltung
+                    stats.weaponDamage = (15 + (rarityMult * 2) + (tier * 1.5)).toInt()
+                    stats.strengthBonus = (2 + (rarityMult / 8)).toInt()
+                    stats.charismaBonus = (1 + (rarityMult / 16)).toInt()
+                }
+                EquipmentSlot.ARMOR -> {  // Brustplatte des Lichtbringers
+                    stats.acBonus = (5 + (rarityMult * 0.5) + (tier * 0.3)).toInt()
+                    stats.hpBonus = (10 + (rarityMult * 5) + (tier * 3)).toInt()
+                    stats.strengthBonus = (2 + (rarityMult / 10)).toInt()
+                    stats.charismaBonus = (2 + (rarityMult / 10)).toInt()
+                }
+                EquipmentSlot.ACCESSORY -> {  // Heiliges Symbol der Rache
+                    stats.weaponDamage = (10 + (rarityMult * 1.5) + tier).toInt()
+                    stats.charismaBonus = (2 + (rarityMult / 8)).toInt()
+                    stats.critChancePercent = (5 + (rarityMult / 4)).toInt()
+                }
+            }
+
+            // SET 3: Heilung (Support/Healer)
+            EquipmentSet.PALADIN_SET3 -> when(slot) {
+                EquipmentSlot.WEAPON -> {  // Stab des Lebens
+                    stats.weaponDamage = (5 + (rarityMult * 0.5) + (tier * 0.5)).toInt()
+                    stats.manaBonus = (20 + (rarityMult * 3) + (tier * 2)).toInt()
+                    stats.wisdomBonus = (2 + (rarityMult / 8)).toInt()
+                    stats.healingPowerPercent = (15 + (rarityMult / 2)).toInt()
+                }
+                EquipmentSlot.ARMOR -> {  // Robe der Barmherzigkeit
+                    stats.acBonus = (2 + (rarityMult * 0.2) + (tier * 0.1)).toInt()
+                    stats.manaBonus = (25 + (rarityMult * 4) + (tier * 3)).toInt()
+                    stats.wisdomBonus = (2 + (rarityMult / 10)).toInt()
+                    stats.charismaBonus = (2 + (rarityMult / 10)).toInt()
+                    stats.healingPowerPercent = (10 + (rarityMult / 2)).toInt()
+                }
+                EquipmentSlot.ACCESSORY -> {  // Amulett der Erneuerung
+                    stats.manaBonus = (15 + (rarityMult * 2) + (tier * 1.5)).toInt()
+                    stats.wisdomBonus = (1 + (rarityMult / 16)).toInt()
+                    stats.charismaBonus = (1 + (rarityMult / 16)).toInt()
+                    stats.healingPowerPercent = (10 + (rarityMult / 4)).toInt()
+                }
+            }
         }
-        return tier * rarityMultiplier * 10
+
+        return stats
     }
+
+    // Legacy function for compatibility
+    fun getStatValue(): Int = getStats().hpBonus + getStats().acBonus
 }
 
 // Ability Type
