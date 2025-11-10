@@ -343,6 +343,128 @@ class MainActivity : Activity() {
 
         layout.addView(buttonContainer)
 
+        // === IDLE SYSTEMS BUTTON ROW ===
+        val idleSystemsContainer = LinearLayout(this)
+        idleSystemsContainer.orientation = LinearLayout.HORIZONTAL
+        idleSystemsContainer.gravity = Gravity.CENTER
+        val idleContainerParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+        idleContainerParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+        idleContainerParams.bottomMargin = 10
+        idleSystemsContainer.layoutParams = idleContainerParams
+
+        // Ascension button
+        val ascensionButton = Button(this)
+        ascensionButton.text = "🌟"
+        ascensionButton.textSize = 20f
+        ascensionButton.setBackgroundColor(Color.rgb(100, 0, 150))
+        ascensionButton.setTextColor(Color.WHITE)
+        val ascensionParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        ascensionParams.setMargins(5, 0, 5, 0)
+        ascensionButton.layoutParams = ascensionParams
+        ascensionButton.setOnClickListener {
+            val intent = Intent(this, AscensionActivity::class.java)
+            startActivity(intent)
+        }
+        idleSystemsContainer.addView(ascensionButton)
+
+        // Artifacts button
+        val artifactsButton = Button(this)
+        artifactsButton.text = "🏺"
+        artifactsButton.textSize = 20f
+        artifactsButton.setBackgroundColor(Color.rgb(150, 100, 0))
+        artifactsButton.setTextColor(Color.WHITE)
+        val artifactsParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        artifactsParams.setMargins(5, 0, 5, 0)
+        artifactsButton.layoutParams = artifactsParams
+        artifactsButton.setOnClickListener {
+            val intent = Intent(this, ArtifactsActivity::class.java)
+            startActivity(intent)
+        }
+        idleSystemsContainer.addView(artifactsButton)
+
+        // Research button
+        val researchButton = Button(this)
+        researchButton.text = "📖"
+        researchButton.textSize = 20f
+        researchButton.setBackgroundColor(Color.rgb(0, 100, 150))
+        researchButton.setTextColor(Color.WHITE)
+        val researchParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        researchParams.setMargins(5, 0, 5, 0)
+        researchButton.layoutParams = researchParams
+        researchButton.setOnClickListener {
+            val intent = Intent(this, ResearchActivity::class.java)
+            startActivity(intent)
+        }
+        idleSystemsContainer.addView(researchButton)
+
+        // Challenges button
+        val challengesButton = Button(this)
+        challengesButton.text = "⚔️"
+        challengesButton.textSize = 20f
+        challengesButton.setBackgroundColor(Color.rgb(150, 0, 0))
+        challengesButton.setTextColor(Color.WHITE)
+        val challengesParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        challengesParams.setMargins(5, 0, 5, 0)
+        challengesButton.layoutParams = challengesParams
+        challengesButton.setOnClickListener {
+            val intent = Intent(this, ChallengesActivity::class.java)
+            startActivity(intent)
+        }
+        idleSystemsContainer.addView(challengesButton)
+
+        // Milestones button
+        val milestonesButton = Button(this)
+        milestonesButton.text = "🏆"
+        milestonesButton.textSize = 20f
+        milestonesButton.setBackgroundColor(Color.rgb(200, 150, 0))
+        milestonesButton.setTextColor(Color.WHITE)
+        val milestonesParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        milestonesParams.setMargins(5, 0, 5, 0)
+        milestonesButton.layoutParams = milestonesParams
+        milestonesButton.setOnClickListener {
+            val intent = Intent(this, MilestonesActivity::class.java)
+            startActivity(intent)
+        }
+        idleSystemsContainer.addView(milestonesButton)
+
+        // Quests button
+        val questsButton = Button(this)
+        questsButton.text = "📜"
+        questsButton.textSize = 20f
+        questsButton.setBackgroundColor(Color.rgb(0, 150, 100))
+        questsButton.setTextColor(Color.WHITE)
+        val questsParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        questsParams.setMargins(5, 0, 5, 0)
+        questsButton.layoutParams = questsParams
+        questsButton.setOnClickListener {
+            val intent = Intent(this, QuestsActivity::class.java)
+            startActivity(intent)
+        }
+        idleSystemsContainer.addView(questsButton)
+
+        layout.addView(idleSystemsContainer)
+
         setContentView(layout)
     }
 

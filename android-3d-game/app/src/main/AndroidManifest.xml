@@ -68,6 +68,36 @@
             android:exported="false"
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize" />
+        <activity
+            android:name=".AscensionActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
+        <activity
+            android:name=".ArtifactsActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
+        <activity
+            android:name=".ResearchActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
+        <activity
+            android:name=".ChallengesActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
+        <activity
+            android:name=".MilestonesActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
+        <activity
+            android:name=".QuestsActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
     </application>
 
 </manifest>
