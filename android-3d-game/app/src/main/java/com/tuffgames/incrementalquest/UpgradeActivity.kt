@@ -89,6 +89,12 @@ class UpgradeActivity : Activity() {
     private fun createUpgradeButtons() {
         upgradeContainer.removeAllViews()
 
+        // Synergy info card (if unlocked and active)
+        if (GameState.areSynergiesUnlocked()) {
+            val synergyCard = createSynergyInfoCard()
+            upgradeContainer.addView(synergyCard)
+        }
+
         // Autoklicker-Card hinzufügen
         val autoClickerCard = createAutoClickerCard()
         upgradeContainer.addView(autoClickerCard)
@@ -125,6 +131,79 @@ class UpgradeActivity : Activity() {
             val upgradeCard = createUpgradeCard(color, name)
             upgradeContainer.addView(upgradeCard)
         }
+    }
+
+    private fun createSynergyInfoCard(): LinearLayout {
+        val card = LinearLayout(this)
+        card.orientation = LinearLayout.VERTICAL
+        card.setBackgroundColor(Color.rgb(40, 20, 60))
+        card.setPadding(15, 15, 15, 15)
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        params.setMargins(0, 0, 0, 15)
+        card.layoutParams = params
+
+        // Title
+        val titleText = TextView(this)
+        titleText.text = "🌈 COLOR SYNERGIES"
+        titleText.textSize = 22f
+        titleText.setTextColor(Color.rgb(255, 100, 255))
+        titleText.gravity = Gravity.CENTER
+        card.addView(titleText)
+
+        // Description
+        val descText = TextView(this)
+        descText.text = "Unlock bonuses by leveling color combinations!"
+        descText.textSize = 14f
+        descText.setTextColor(Color.rgb(200, 200, 200))
+        descText.gravity = Gravity.CENTER
+        descText.setPadding(0, 5, 0, 15)
+        card.addView(descText)
+
+        // Active synergies
+        val activeSynergies = GameState.getActiveSynergies()
+        if (activeSynergies.isNotEmpty()) {
+            val activeTitle = TextView(this)
+            activeTitle.text = "✅ ACTIVE:"
+            activeTitle.textSize = 16f
+            activeTitle.setTextColor(Color.rgb(100, 255, 100))
+            activeTitle.setPadding(0, 0, 0, 10)
+            card.addView(activeTitle)
+
+            activeSynergies.forEach { synergy ->
+                val synergyText = TextView(this)
+                synergyText.text = String.format("• %s: +%.0f%%", synergy.name, synergy.bonus * 100)
+                synergyText.textSize = 14f
+                synergyText.setTextColor(Color.rgb(150, 255, 150))
+                synergyText.setPadding(20, 2, 0, 2)
+                card.addView(synergyText)
+            }
+        }
+
+        // Inactive synergies (show first 3)
+        val allSynergies = COLOR_SYNERGIES
+        val inactiveSynergies = allSynergies.filter { !activeSynergies.contains(it) }.take(3)
+        if (inactiveSynergies.isNotEmpty()) {
+            val inactiveTitle = TextView(this)
+            inactiveTitle.text = if (activeSynergies.isNotEmpty()) "\n🔒 LOCKED:" else "🔒 AVAILABLE:"
+            inactiveTitle.textSize = 16f
+            inactiveTitle.setTextColor(Color.rgb(150, 150, 150))
+            inactiveTitle.setPadding(0, 10, 0, 10)
+            card.addView(inactiveTitle)
+
+            inactiveSynergies.forEach { synergy ->
+                val synergyText = TextView(this)
+                synergyText.text = "• ${synergy.description}"
+                synergyText.textSize = 13f
+                synergyText.setTextColor(Color.rgb(120, 120, 120))
+                synergyText.setPadding(20, 2, 0, 2)
+                card.addView(synergyText)
+            }
+        }
+
+        return card
     }
 
     private fun createAutoClickerCard(): LinearLayout {

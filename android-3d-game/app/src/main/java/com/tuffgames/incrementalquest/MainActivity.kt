@@ -23,12 +23,14 @@ class MainActivity : Activity() {
     private lateinit var renderer: GameRenderer
     private lateinit var scoreText: TextView
     private lateinit var clickValueText: TextView
+    private lateinit var comboText: TextView
     private lateinit var buffIndicatorText: TextView
     private lateinit var upgradeButton: Button
     private lateinit var prestigeButton: Button
     private lateinit var buffButton: Button
     private lateinit var extraDiceButton: Button
     private lateinit var tavernButton: Button
+    private lateinit var achievementButton: Button
 
     private val buffCheckHandler = Handler(Looper.getMainLooper())
     private val buffCheckRunnable = object : Runnable {
@@ -133,6 +135,22 @@ class MainActivity : Activity() {
         clickValueText.layoutParams = clickValueParams
         layout.addView(clickValueText)
 
+        // Combo display
+        comboText = TextView(this)
+        comboText.text = ""
+        comboText.textSize = 20f
+        comboText.setTextColor(Color.rgb(255, 150, 50))
+        comboText.setShadowLayer(4f, 2f, 2f, Color.BLACK)
+        comboText.visibility = View.GONE
+        val comboParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+        comboParams.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        comboParams.topMargin = 150
+        comboText.layoutParams = comboParams
+        layout.addView(comboText)
+
         // Buff-Indikator erstellen
         buffIndicatorText = TextView(this)
         buffIndicatorText.text = ""
@@ -145,7 +163,7 @@ class MainActivity : Activity() {
             FrameLayout.LayoutParams.WRAP_CONTENT
         )
         buffIndicatorParams.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        buffIndicatorParams.topMargin = 180
+        buffIndicatorParams.topMargin = 210
         buffIndicatorText.layoutParams = buffIndicatorParams
         layout.addView(buffIndicatorText)
 
@@ -237,6 +255,24 @@ class MainActivity : Activity() {
         }
         buttonContainer.addView(extraDiceButton)
 
+        // Achievement button
+        achievementButton = Button(this)
+        achievementButton.text = "🏆 ACH"
+        achievementButton.textSize = 16f
+        achievementButton.setBackgroundColor(Color.rgb(200, 150, 50))
+        achievementButton.setTextColor(Color.WHITE)
+        val achievementParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        achievementParams.setMargins(5, 0, 5, 0)
+        achievementButton.layoutParams = achievementParams
+        achievementButton.setOnClickListener {
+            val intent = Intent(this, AchievementActivity::class.java)
+            startActivity(intent)
+        }
+        buttonContainer.addView(achievementButton)
+
         // Tavern "?" button (locked until paid, visible after D20)
         tavernButton = Button(this)
         tavernButton.textSize = 16f
@@ -306,6 +342,15 @@ class MainActivity : Activity() {
             // Show current click value
             val currentValue = GameState.getCurrentPoints(renderer.currentColor)
             clickValueText.text = "Next: $currentValue"
+
+            // Update combo display
+            val combo = GameState.getCurrentCombo()
+            if (combo > 1) {
+                comboText.text = "🔥 ${combo}x COMBO!"
+                comboText.visibility = View.VISIBLE
+            } else {
+                comboText.visibility = View.GONE
+            }
 
             // Show upgrade button when unlocked
             if (GameState.upgradesUnlocked) {
