@@ -35,11 +35,11 @@ object GameState {
     // How many prestige levels have been claimed
     private var prestigesClaimed = 0
 
-    // Essence Power Level (unbounded, linear progression with powerspikes)
-    var essencePowerLevel = 0
+    // NEW: Permanent Click Multiplier (bought with Gold)
+    var permanentMultiplierLevel = 0
         private set
 
-    // Permanent color upgrades with Divine Essence (NOT reset on prestige!)
+    // Permanent color upgrades with Points (NOT reset on prestige!)
     private val permanentColorUpgrades = mutableMapOf<CubeColor, Int>()
 
     var autoClickerActive = false
@@ -145,16 +145,16 @@ object GameState {
         CubeColor.CORAL to 20
     )
 
-    // Base cost for permanent color upgrades by dice tier (3x multiplier between tiers)
-    private fun getColorTierBaseCost(color: CubeColor): Int {
+    // Base cost for permanent color upgrades by dice tier (uses Points now!)
+    private fun getColorTierBaseCost(color: CubeColor): Double {
         val basePoints = baseColorPoints[color] ?: 1
         return when (basePoints) {
-            in 1..4 -> 5      // D4: 5 DE
-            in 5..6 -> 15     // D6: 15 DE (3x)
-            in 7..8 -> 45     // D8: 45 DE (3x)
-            in 9..10 -> 135   // D10: 135 DE (3x)
-            in 11..12 -> 405  // D12: 405 DE (3x)
-            else -> 1215      // D20: 1215 DE (3x)
+            in 1..4 -> 5000.0      // D4: 5k Points
+            in 5..6 -> 25000.0     // D6: 25k Points
+            in 7..8 -> 100000.0    // D8: 100k Points
+            in 9..10 -> 500000.0   // D10: 500k Points
+            in 11..12 -> 2000000.0 // D12: 2M Points
+            else -> 10000000.0     // D20: 10M Points
         }
     }
 
@@ -252,12 +252,11 @@ object GameState {
         val upgradeCount = upgradeCount[color] ?: 0
         val upgradeBonus = basePoints * upgradeCount
 
-        // Essence Power Multiplier (ULTRA EXTREME POWERSPIKES!)
-        val essencePowerMulti = getEssencePowerClickMultiplier()
+        // Permanent Click Multiplier (bought with Gold)
+        val permanentMulti = getPermanentClickMultiplier()
 
-        // Total points with Essence Power multiplier applied
-        // Note: Permanent color upgrades now give passive points/sec instead of flat bonus
-        var totalPoints = (basePoints + upgradeBonus).toDouble() * essencePowerMulti
+        // Total points with permanent multiplier applied
+        var totalPoints = (basePoints + upgradeBonus).toDouble() * permanentMulti
 
         // Extra Dice: Apply flat score bonus (consumed)
         if (flatScoreBonusNextClick > 0) {
@@ -292,8 +291,10 @@ object GameState {
     fun getUpgradeCost(color: CubeColor): Double {
         val basePoints = baseColorPoints[color] ?: 1
         val baseCost = basePoints * 10.0  // Basis: basePoints × 10
-        val multiplier = costMultipliers[color] ?: 1.0
-        return baseCost * multiplier
+        val count = upgradeCount[color] ?: 0
+
+        // Exponential scaling: baseCost × 1.15^count
+        return baseCost * (1.15).pow(count)
     }
 
     fun canAffordUpgrade(color: CubeColor): Boolean {
@@ -313,10 +314,7 @@ object GameState {
         val basePoints = baseColorPoints[color] ?: 1
         upgradeLevels[color] = (upgradeLevels[color] ?: 0) + basePoints
 
-        // Neue Kosten-Steigerung: multiplier = multiplier + 1 + (1.000001²)
-        val currentMultiplier = costMultipliers[color] ?: 1.0
-        val increment = 1.0 + (1.000001 * 1.000001)  // = 1.000002000001
-        costMultipliers[color] = currentMultiplier + increment
+        // costMultipliers wird nicht mehr benötigt (backwards compat only)
 
         return true
     }
@@ -332,11 +330,10 @@ object GameState {
         val count = upgradeCount[color] ?: 0
         val upgradeBonus = basePoints * count
 
-        // Essence Power Multiplier (ULTRA EXTREME POWERSPIKES!)
-        val essencePowerMulti = getEssencePowerClickMultiplier()
+        // Permanent Click Multiplier (bought with Gold)
+        val permanentMulti = getPermanentClickMultiplier()
 
-        // Note: Permanent color upgrades now give passive points/sec instead of flat bonus
-        return ((basePoints + upgradeBonus).toDouble() * essencePowerMulti).toInt()
+        return ((basePoints + upgradeBonus).toDouble() * permanentMulti).toInt()
     }
 
     // Average click value across all colors
@@ -383,112 +380,62 @@ object GameState {
         }
     }
 
-    // Prestige Upgrade: Essence Power (unbounded level-based system)
-    // Formula: level^1.3 scaling with powerspikes at 10, 25, 50, 100
-    // Powerspike levels cost more but grant massive bonuses
+    // ========== NEW: Permanent Click Multiplier System (Gold-based) ==========
 
-    // Calculate essence bonus based on level
-    // Get Essence Power multiplier for clicks (ULTRA EXTREME POWERSPIKES!)
-    private fun getEssencePowerClickMultiplier(): Double {
-        if (essencePowerLevel == 0) return 1.0
-
-        // Base: +0.5% per level (gedämpft zwischen Powerspikes)
-        var multiplier = 1.0 + (essencePowerLevel * 0.005)
-
-        // MEGA POWERSPIKE BONI (ULTRA REWARDING!)
-        // These stack cumulatively as you progress
-        val powerspikeBonus = when {
-            essencePowerLevel >= 100 -> 0.60 + 0.80 + 0.90 + 0.20  // All spikes: +250% total = ×4.20!
-            essencePowerLevel >= 50 -> 0.60 + 0.80 + 0.90          // First 3 spikes: +230% = ×3.70!
-            essencePowerLevel >= 25 -> 0.60 + 0.80                 // First 2 spikes: +140% = ×2.53!
-            essencePowerLevel >= 10 -> 0.60                        // First spike: +60% = ×1.65!
-            else -> 0.0
-        }
-        multiplier += powerspikeBonus
-
-        return multiplier
+    // Get current click multiplier from permanent upgrades
+    fun getPermanentClickMultiplier(): Double {
+        // +5% per level
+        return 1.0 + (permanentMultiplierLevel * 0.05)
     }
 
-    // Legacy function - kept for backwards compatibility but no longer adds flat bonus
-    private fun calculateEssenceBonus(): Double {
-        return 0.0  // Essence Power now works as multiplier, not flat bonus
+    // Get cost for next permanent multiplier level
+    fun getPermanentMultiplierCost(): Int {
+        // Cost: 5000 × 1.5^level
+        return (5000 * (1.5).pow(permanentMultiplierLevel)).toInt()
     }
 
-    // Calculate cost for next essence power level
-    fun getEssencePowerCost(): Int {
-        val nextLevel = essencePowerLevel + 1
-
-        // Powerspike levels (10, 25, 50, 100) are much more expensive
-        val isPowerspike = nextLevel == 10 || nextLevel == 25 || nextLevel == 50 || nextLevel == 100
-
-        return if (isPowerspike) {
-            // Powerspikes: level^2.2 (expensive!)
-            kotlin.math.ceil(nextLevel.toDouble().pow(2.2)).toInt()
-        } else {
-            // Normal levels: level^1.6
-            kotlin.math.ceil(nextLevel.toDouble().pow(1.6)).toInt()
-        }
+    fun canAffordPermanentMultiplier(): Boolean {
+        return gold >= getPermanentMultiplierCost()
     }
 
-    fun canAffordEssencePower(): Boolean {
-        val cost = getEssencePowerCost()
-        return divineEssence >= cost
-    }
+    fun buyPermanentMultiplier(): Boolean {
+        if (!canAffordPermanentMultiplier()) return false
 
-    fun buyEssencePower(): Boolean {
-        if (!canAffordEssencePower()) return false
-
-        val cost = getEssencePowerCost()
-        divineEssence -= cost
-        essencePowerLevel++
+        val cost = getPermanentMultiplierCost()
+        gold -= cost
+        permanentMultiplierLevel++
 
         return true
     }
 
-    fun getEssencePowerMultiplier(): Double {
-        // Returns the click multiplier from Essence Power (for UI display)
-        return getEssencePowerClickMultiplier()
-    }
-
-    fun getNextPowerspikeLevel(): Int {
-        return when {
-            essencePowerLevel < 10 -> 10
-            essencePowerLevel < 25 -> 25
-            essencePowerLevel < 50 -> 50
-            essencePowerLevel < 100 -> 100
-            else -> -1  // No more powerspikes
-        }
-    }
-
-    // Permanent color upgrades with Divine Essence
+    // Permanent color upgrades with Points (stay after prestige!)
     fun getPermanentColorUpgradeLevel(color: CubeColor): Int {
         return permanentColorUpgrades[color] ?: 0
     }
 
-    fun getPermanentColorUpgradeCost(color: CubeColor): Int {
+    fun getPermanentColorUpgradeCost(color: CubeColor): Double {
         val currentLevel = getPermanentColorUpgradeLevel(color)
 
         // Max level is 10
         if (currentLevel >= maxPermanentColorLevel) {
-            return Int.MAX_VALUE
+            return Double.MAX_VALUE
         }
 
-        // Cost = baseCost × (nextLevel)
-        // Example: RED Level 1 = 5 × 1 = 5 DE, Level 2 = 5 × 2 = 10 DE
+        // Cost = baseCost × 2^level (exponential!)
+        // Example: RED Level 1 = 5k × 2^0 = 5k, Level 2 = 5k × 2^1 = 10k, Level 3 = 20k, etc.
         val baseCost = getColorTierBaseCost(color)
-        val nextLevel = currentLevel + 1
-        return baseCost * nextLevel
+        return baseCost * (2.0).pow(currentLevel)
     }
 
     fun canAffordPermanentColorUpgrade(color: CubeColor): Boolean {
-        return divineEssence >= getPermanentColorUpgradeCost(color)
+        return totalScore >= getPermanentColorUpgradeCost(color)
     }
 
     fun buyPermanentColorUpgrade(color: CubeColor): Boolean {
         if (!canAffordPermanentColorUpgrade(color)) return false
 
         val cost = getPermanentColorUpgradeCost(color)
-        divineEssence -= cost
+        totalScore -= cost
 
         val currentLevel = permanentColorUpgrades[color] ?: 0
         permanentColorUpgrades[color] = currentLevel + 1
@@ -502,8 +449,8 @@ object GameState {
         if (level == 0) return 0.0
 
         val basePoints = baseColorPoints[color] ?: 1
-        // Level 10 = 100% of basePoints/sec, Level 1 = 10%, etc.
-        return (level.toDouble() / maxPermanentColorLevel) * basePoints
+        // Level 10 = 1000% (10x) of basePoints/sec, Level 1 = 100%, etc.
+        return (level.toDouble() / maxPermanentColorLevel) * basePoints * 10.0
     }
 
     // Calculate total passive points per second from all colors
@@ -551,25 +498,25 @@ object GameState {
         return true
     }
 
-    // Auto Clicker Speed Upgrade
+    // Auto Clicker Speed Upgrade (now uses Gold!)
     fun getAutoClickerSpeedCost(): Int {
         if (autoClickerSpeedLevel >= 100) return -1  // Max Level
-        // Cost doubles: 1, 2, 4, 8, 16, ...
-        return 1 shl autoClickerSpeedLevel  // Bit-shift: 2^level
+        // Cost: 100 × 1.5^level
+        return (100 * (1.5).pow(autoClickerSpeedLevel)).toInt()
     }
 
     fun canAffordAutoClickerSpeed(): Boolean {
         if (!autoClickerActive) return false  // Must have auto clicker first
         if (autoClickerSpeedLevel >= 100) return false
         val cost = getAutoClickerSpeedCost()
-        return divineEssence >= cost
+        return gold >= cost  // Uses Gold now!
     }
 
     fun buyAutoClickerSpeed(): Boolean {
         if (!canAffordAutoClickerSpeed()) return false
 
         val cost = getAutoClickerSpeedCost()
-        divineEssence -= cost
+        gold -= cost  // Uses Gold now!
         autoClickerSpeedLevel++
 
         return true
@@ -896,11 +843,11 @@ object GameState {
 
     // ========== Lootbox System ==========
 
-    // Get lootbox cost (low cost as requested by user)
-    fun getLootboxCost(): Int = 5  // 5 DE per box
+    // Get lootbox cost (uses Gold now!)
+    fun getLootboxCost(): Int = 1000  // 1000 Gold per box
 
     // Can afford lootbox?
-    fun canAffordLootbox(): Boolean = divineEssence >= getLootboxCost()
+    fun canAffordLootbox(): Boolean = gold >= getLootboxCost()
 
     // Buy lootbox - returns random equipment or null if can't afford
     fun buyLootbox(): Equipment? {
@@ -910,7 +857,7 @@ object GameState {
         val availableSets = playerClass.getAvailableSets()
         if (availableSets.isEmpty()) return null
 
-        divineEssence -= getLootboxCost()
+        gold -= getLootboxCost()  // Uses Gold now!
 
         // Random slot
         val slot = EquipmentSlot.values().random()
@@ -1679,27 +1626,43 @@ object GameState {
     }
 
     fun performPrestige(): Boolean {
-        var available = getAvailablePrestigeRewards()
-        if (available <= 0) return false
+        val points = lifetimeScore
+
+        // Calculate DE reward (milestone-based system)
+        val deReward = when {
+            points < 5000 -> 0          // Too early
+            points < 50000 -> 1         // 5k-50k: 1 DE
+            points < 200000 -> 2        // 50k-200k: 2 DE
+            points < 500000 -> 3        // 200k-500k: 3 DE
+            points < 1000000 -> 5       // 500k-1M: 5 DE
+            else -> 5 + (points / 1000000).toInt()  // 1M+: 5 + 1 per M
+        }
+
+        if (deReward <= 0) return false
 
         // Apply Essence Multiplier buff if active
+        var finalDEReward = deReward
         activeEssenceBuff?.let { buff ->
             if (System.currentTimeMillis() <= buff.endTime) {
-                available = (available * buff.multiplier).toInt()
+                finalDEReward = (finalDEReward * buff.multiplier).toInt()
             }
         }
 
-        // Add Divine Essence for all unclaimed levels
-        divineEssence += available
-        totalDivineEssenceEarned += available
-        prestigesClaimed += available
+        // Calculate Gold reward (generous!)
+        val goldReward = (points / 100).toInt()
 
-        // Reset everything (except divineEssence, totalDivineEssenceEarned, lifetimeScore and prestigesClaimed)
+        // Apply rewards
+        divineEssence += finalDEReward
+        totalDivineEssenceEarned += finalDEReward
+        prestigesClaimed++
+        gold += goldReward
+
+        // Reset everything (except divineEssence, gold, lifetimeScore, permanentUpgrades)
         totalScore = 0.0
         upgradesUnlocked = false
         upgradeLevels.keys.forEach { upgradeLevels[it] = 0 }
         upgradeCount.keys.forEach { upgradeCount[it] = 0 }
-        costMultipliers.keys.forEach { costMultipliers[it] = 1.0 }
+        // costMultipliers no longer needed (backwards compat only)
 
         return true
     }
@@ -1709,9 +1672,10 @@ object GameState {
         lifetimeScore = 0.0
         upgradesUnlocked = false
         divineEssence = 0
+        gold = 0
         totalDivineEssenceEarned = 0
         prestigesClaimed = 0
-        essencePowerLevel = 0
+        permanentMultiplierLevel = 0
         autoClickerActive = false
         autoClickerSpeedLevel = 0
         d4Active = true  // Reset to D4 start
@@ -1756,11 +1720,15 @@ object GameState {
         editor.putFloat("lifetimeScore", lifetimeScore.toFloat())
         editor.putBoolean("upgradesUnlocked", upgradesUnlocked)
         editor.putInt("paintCans", divineEssence)  // Keep old key for compatibility
+        editor.putInt("gold", gold)
         editor.putInt("totalPaintCansEarned", totalDivineEssenceEarned)  // Keep old key for compatibility
         editor.putInt("prestigesClaimed", prestigesClaimed)
 
-        // Essence Power Level (new system)
-        editor.putInt("essencePowerLevel", essencePowerLevel)
+        // NEW: Permanent Click Multiplier
+        editor.putInt("permanentMultiplierLevel", permanentMultiplierLevel)
+
+        // OLD: Essence Power Level (kept for backwards compatibility, but set to 0)
+        editor.putInt("essencePowerLevel", 0)
 
         editor.putBoolean("autoClickerActive", autoClickerActive)
         editor.putInt("autoClickerSpeedLevel", autoClickerSpeedLevel)
@@ -1908,6 +1876,12 @@ object GameState {
             prefs.getFloat("paintCans", 0f).toInt()
         }
 
+        gold = try {
+            prefs.getInt("gold", 0)
+        } catch (e: ClassCastException) {
+            0
+        }
+
         totalDivineEssenceEarned = try {
             prefs.getInt("totalPaintCansEarned", 0)  // Keep old key for compatibility
         } catch (e: ClassCastException) {
@@ -1920,15 +1894,27 @@ object GameState {
             prefs.getFloat("prestigesClaimed", 0f).toInt()
         }
 
-        // Essence Power Level (new system)
-        essencePowerLevel = try {
-            prefs.getInt("essencePowerLevel", 0)
+        // NEW: Permanent Click Multiplier
+        permanentMultiplierLevel = try {
+            prefs.getInt("permanentMultiplierLevel", 0)
         } catch (e: ClassCastException) {
             0
         }
 
-        // Migration: Convert old tier system to new level system
-        if (essencePowerLevel == 0 && prefs.contains("paintCanBonusUpgrade_0")) {
+        // OLD: Essence Power Level - REMOVED, kept for backwards compat but always 0
+        // Migration: Convert old essence power to gold (generous compensation!)
+        val oldEssencePowerLevel = try {
+            prefs.getInt("essencePowerLevel", 0)
+        } catch (e: ClassCastException) {
+            0
+        }
+        if (oldEssencePowerLevel > 0) {
+            // Give generous gold compensation: 10000 gold per old level
+            gold += oldEssencePowerLevel * 10000
+        }
+
+        // Also migrate old tier system
+        if (prefs.contains("paintCanBonusUpgrade_0")) {
             // Old save detected - count how many tiers were purchased
             var oldTiersCount = 0
             for (i in 0 until 10) {
@@ -1936,8 +1922,8 @@ object GameState {
                     oldTiersCount++
                 }
             }
-            // Convert to new system: 1 old tier ≈ 3 new levels (generous migration)
-            essencePowerLevel = oldTiersCount * 3
+            // Give compensation: 30000 gold per old tier
+            gold += oldTiersCount * 30000
         }
 
         autoClickerActive = prefs.getBoolean("autoClickerActive", false)

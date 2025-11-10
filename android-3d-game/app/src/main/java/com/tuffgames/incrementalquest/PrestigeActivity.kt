@@ -247,9 +247,9 @@ class PrestigeActivity : Activity() {
             upgradeContainer.addView(speedCard)
         }
 
-        // Essence Power Upgrades (10 tiers - combined)
-        val bonusCard = createEssencePowerCard()
-        upgradeContainer.addView(bonusCard)
+        // NEW: Permanent Click Multiplier (Gold-based)
+        val multiplierCard = createPermanentMultiplierCard()
+        upgradeContainer.addView(multiplierCard)
 
         // Permanente Farb-Upgrades (bleiben beim Prestige!)
         val permanentUpgradesCard = createPermanentColorUpgradesCard()
@@ -616,7 +616,7 @@ class PrestigeActivity : Activity() {
         if (level < maxLevel) {
             val cost = GameState.getAutoClickerSpeedCost()
             val upgradeButton = Button(this)
-            upgradeButton.text = "Upgrade ($cost)"
+            upgradeButton.text = "Upgrade ($cost Gold)"
             upgradeButton.textSize = 16f
 
             if (GameState.canAffordAutoClickerSpeed()) {
@@ -644,7 +644,7 @@ class PrestigeActivity : Activity() {
         return card
     }
 
-    private fun createEssencePowerCard(): LinearLayout {
+    private fun createPermanentMultiplierCard(): LinearLayout {
         val card = LinearLayout(this)
         card.orientation = LinearLayout.VERTICAL
         card.setBackgroundColor(Color.rgb(30, 30, 60))
@@ -658,22 +658,22 @@ class PrestigeActivity : Activity() {
 
         // Title
         val titleText = TextView(this)
-        titleText.text = "✨ Essence Power"
+        titleText.text = "💰 Permanent Click Multiplier"
         titleText.textSize = 22f
         titleText.setTextColor(Color.rgb(255, 215, 0))
         card.addView(titleText)
 
         // Current Level
         val levelText = TextView(this)
-        levelText.text = "Current Level: ${GameState.essencePowerLevel}"
+        levelText.text = "Current Level: ${GameState.permanentMultiplierLevel}"
         levelText.textSize = 20f
         levelText.setTextColor(Color.rgb(100, 255, 100))
         levelText.gravity = Gravity.CENTER
         levelText.setPadding(0, 10, 0, 5)
         card.addView(levelText)
 
-        // Current Click Multiplier (ULTRA EXTREME!)
-        val multiplier = GameState.getEssencePowerMultiplier()
+        // Current Click Multiplier
+        val multiplier = GameState.getPermanentClickMultiplier()
         val multiplierText = TextView(this)
         multiplierText.text = String.format("Click Multiplier: ×%.2f", multiplier)
         multiplierText.textSize = 18f
@@ -684,8 +684,8 @@ class PrestigeActivity : Activity() {
 
         // Multiplier explanation
         val explainText = TextView(this)
-        if (GameState.essencePowerLevel == 0) {
-            explainText.text = "All clicks will be multiplied by this value!"
+        if (GameState.permanentMultiplierLevel == 0) {
+            explainText.text = "Spend Gold to permanently increase all clicks!"
         } else {
             val percentBonus = ((multiplier - 1.0) * 100).toInt()
             explainText.text = "+$percentBonus% bonus on all clicks!"
@@ -696,54 +696,16 @@ class PrestigeActivity : Activity() {
         explainText.setPadding(0, 5, 0, 15)
         card.addView(explainText)
 
-        // Next Powerspike Info
-        val nextPowerspike = GameState.getNextPowerspikeLevel()
-        if (nextPowerspike > 0) {
-            val powerspikeText = TextView(this)
-            val levelsToGo = nextPowerspike - GameState.essencePowerLevel
-            val powerspikeBonus = when (nextPowerspike) {
-                10 -> "+60%"   // ULTRA EXTREME!
-                25 -> "+80%"   // INSANE!
-                50 -> "+90%"   // GODLIKE!
-                100 -> "+20%"  // LEGENDARY!
-                else -> ""
-            }
-            powerspikeText.text = "🔥🔥 POWERSPIKE at Level $nextPowerspike ($powerspikeBonus BOOST!) - $levelsToGo levels to go!"
-            powerspikeText.textSize = 14f
-            powerspikeText.setTextColor(Color.rgb(255, 150, 50))
-            powerspikeText.gravity = Gravity.CENTER
-            powerspikeText.setPadding(5, 5, 5, 15)
-            card.addView(powerspikeText)
-        } else {
-            val maxText = TextView(this)
-            maxText.text = "🏆 All Powerspikes Reached! Keep leveling for linear gains."
-            maxText.textSize = 14f
-            maxText.setTextColor(Color.rgb(255, 215, 0))
-            maxText.gravity = Gravity.CENTER
-            maxText.setPadding(5, 5, 5, 15)
-            card.addView(maxText)
-        }
-
         // Upgrade Button
-        val cost = GameState.getEssencePowerCost()
-        val nextLevel = GameState.essencePowerLevel + 1
-        val isPowerspike = nextLevel == 10 || nextLevel == 25 || nextLevel == 50 || nextLevel == 100
-
+        val cost = GameState.getPermanentMultiplierCost()
         val upgradeButton = Button(this)
+        upgradeButton.text = "Upgrade (+5%)\nCost: $cost Gold"
         upgradeButton.textSize = 16f
         upgradeButton.setPadding(20, 20, 20, 20)
-
-        if (isPowerspike) {
-            upgradeButton.text = "🔥 POWERSPIKE LEVEL $nextLevel 🔥\nCost: $cost Divine Essence"
-            upgradeButton.setBackgroundColor(Color.rgb(200, 50, 50))
-        } else {
-            upgradeButton.text = "Upgrade to Level $nextLevel\nCost: $cost Divine Essence"
-            upgradeButton.setBackgroundColor(if (GameState.canAffordEssencePower()) Color.rgb(50, 150, 50) else Color.rgb(100, 100, 100))
-        }
-
+        upgradeButton.setBackgroundColor(if (GameState.canAffordPermanentMultiplier()) Color.rgb(50, 150, 50) else Color.rgb(100, 100, 100))
         upgradeButton.setTextColor(Color.WHITE)
         upgradeButton.setOnClickListener {
-            if (GameState.buyEssencePower()) {
+            if (GameState.buyPermanentMultiplier()) {
                 showUpgradeView()  // Refresh
             }
         }
@@ -751,7 +713,7 @@ class PrestigeActivity : Activity() {
 
         // Description
         val descText = TextView(this)
-        descText.text = "Each level increases the multiplier on your lifetime Divine Essence.\nPowerspikes at levels 10, 25, 50, and 100 grant massive bonuses!"
+        descText.text = "Permanent upgrade with Gold! +5% click power per level.\nSurvives prestige!"
         descText.textSize = 12f
         descText.setTextColor(Color.LTGRAY)
         descText.setPadding(0, 15, 0, 0)
@@ -781,7 +743,7 @@ class PrestigeActivity : Activity() {
 
         // Description
         val descText = TextView(this)
-        descText.text = "Passive points/sec per color (Max Lv 10)\nLevel 10 = full base points/sec | Survives prestige!"
+        descText.text = "Spend POINTS for passive income per color (Max Lv 10)\nLevel 10 = 10x base points/sec | Survives prestige!"
         descText.textSize = 14f
         descText.setTextColor(Color.LTGRAY)
         descText.setPadding(0, 5, 0, 15)
