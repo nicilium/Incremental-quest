@@ -121,6 +121,23 @@ object GameState {
 
     private var buffOffersWithoutEssence = 0  // Bad Luck Protection Counter
 
+    // ========== NEW: Achievement System ==========
+    var totalClicksAllTime = 0L
+        private set
+
+    var maxComboReached = 0
+        private set
+
+    private val unlockedAchievements = mutableSetOf<AchievementType>()
+
+    // ========== NEW: Click Combo System ==========
+    private var currentCombo = 0
+    private var lastClickTime = 0L
+    private val comboWindow = 1000L  // 1 second window
+
+    // ========== NEW: Color Synergy System ==========
+    private var synergiesEnabled = false  // Unlocked via achievement
+
     // Basis-Punktwerte für jede Farbe
     private val baseColorPoints = mapOf(
         CubeColor.RED to 1,
@@ -237,6 +254,15 @@ object GameState {
     )
 
     fun onColorClicked(color: CubeColor) {
+        // Track total clicks
+        totalClicksAllTime++
+
+        // Update click combo
+        updateCombo()
+
+        // Check for new achievements
+        checkAchievements()
+
         // Apply passive points from permanent color upgrades
         applyPassivePoints()
 
@@ -255,8 +281,20 @@ object GameState {
         // Permanent Click Multiplier (bought with Gold)
         val permanentMulti = getPermanentClickMultiplier()
 
-        // Total points with permanent multiplier applied
-        var totalPoints = (basePoints + upgradeBonus).toDouble() * permanentMulti
+        // Achievement bonuses
+        val achievementBonus = getAchievementClickBonus()
+
+        // Synergy bonuses (if enabled)
+        val synergyBonus = if (synergiesEnabled) getSynergyBonus(color) else 0.0
+
+        // Combo multiplier
+        val comboMulti = getComboMultiplier()
+
+        // Total points with all multipliers applied
+        var totalPoints = (basePoints + upgradeBonus).toDouble() *
+                         permanentMulti *
+                         (1.0 + achievementBonus + synergyBonus) *
+                         comboMulti
 
         // Extra Dice: Apply flat score bonus (consumed)
         if (flatScoreBonusNextClick > 0) {
@@ -408,6 +446,102 @@ object GameState {
         return true
     }
 
+    // ========== NEW: Achievement System Functions ==========
+
+    // Check and unlock achievements
+    private fun checkAchievements() {
+        AchievementType.values().forEach { achievement ->
+            if (!unlockedAchievements.contains(achievement) && achievement.isUnlocked(this)) {
+                unlockedAchievements.add(achievement)
+
+                // Special achievement: Unlock synergies
+                if (achievement == AchievementType.UNLOCK_SYNERGIES) {
+                    synergiesEnabled = true
+                }
+            }
+        }
+    }
+
+    // Get total click bonus from achievements
+    fun getAchievementClickBonus(): Double {
+        return unlockedAchievements.sumOf { it.clickBonus }
+    }
+
+    // Get total passive bonus from achievements
+    fun getAchievementPassiveBonus(): Double {
+        return unlockedAchievements.sumOf { it.passiveBonus }
+    }
+
+    // Get all unlocked achievements
+    fun getUnlockedAchievements(): List<AchievementType> {
+        return unlockedAchievements.toList()
+    }
+
+    // Get locked achievements that can be progressed
+    fun getLockedAchievements(): List<AchievementType> {
+        return AchievementType.values().filter { !unlockedAchievements.contains(it) }
+    }
+
+    // ========== NEW: Click Combo System ==========
+
+    private fun updateCombo() {
+        val currentTime = System.currentTimeMillis()
+
+        if (currentTime - lastClickTime < comboWindow) {
+            // Within combo window, increase combo
+            currentCombo++
+        } else {
+            // Combo expired, reset
+            currentCombo = 1
+        }
+
+        lastClickTime = currentTime
+
+        // Track max combo reached
+        if (currentCombo > maxComboReached) {
+            maxComboReached = currentCombo
+        }
+    }
+
+    // Get combo multiplier (max 3x at 50+ combo)
+    private fun getComboMultiplier(): Double {
+        if (currentCombo <= 1) return 1.0
+
+        // +4% per combo, max 200% bonus (3x total at 50 combo)
+        val bonus = (currentCombo * 0.04).coerceAtMost(2.0)
+        return 1.0 + bonus
+    }
+
+    // Get current combo count (for UI)
+    fun getCurrentCombo(): Int = currentCombo
+
+    // ========== NEW: Color Synergy System ==========
+
+    // Get active synergies
+    fun getActiveSynergies(): List<ColorSynergy> {
+        if (!synergiesEnabled) return emptyList()
+
+        return COLOR_SYNERGIES.filter { synergy ->
+            // Check if all colors in synergy meet min level
+            synergy.colors.all { color ->
+                getUpgradeLevel(color) >= synergy.minLevel
+            }
+        }
+    }
+
+    // Get synergy bonus for specific color
+    private fun getSynergyBonus(color: CubeColor): Double {
+        val activeSynergies = getActiveSynergies()
+
+        // Sum all synergy bonuses that include this color
+        return activeSynergies
+            .filter { it.colors.contains(color) }
+            .sumOf { it.bonus }
+    }
+
+    // Check if synergies are unlocked
+    fun areSynergiesUnlocked(): Boolean = synergiesEnabled
+
     // Permanent color upgrades with Points (stay after prestige!)
     fun getPermanentColorUpgradeLevel(color: CubeColor): Int {
         return permanentColorUpgrades[color] ?: 0
@@ -459,6 +593,11 @@ object GameState {
         CubeColor.values().forEach { color ->
             total += getPassivePointsPerSecond(color)
         }
+
+        // Apply achievement bonus to passive income
+        val achievementBonus = getAchievementPassiveBonus()
+        total *= (1.0 + achievementBonus)
+
         return total
     }
 
@@ -1699,6 +1838,16 @@ object GameState {
         buffTimeMultiplier = 1
         buffOffersWithoutEssence = 0
 
+        // NEW: Reset Achievement & Combo System
+        totalClicksAllTime = 0L
+        maxComboReached = 0
+        currentCombo = 0
+        lastClickTime = 0L
+        unlockedAchievements.clear()
+
+        // NEW: Reset Synergy System
+        synergiesEnabled = false
+
         // Reset time tracking
         lastActiveTime = System.currentTimeMillis()
     }
@@ -1847,6 +1996,14 @@ object GameState {
             editor.putString("loadout_normal_$i", characterLoadout.getNormalAbility(i)?.name)
         }
         editor.putString("loadout_ultimate", characterLoadout.ultimateAbility?.name)
+
+        // NEW: Achievement System
+        editor.putLong("totalClicksAllTime", totalClicksAllTime)
+        editor.putInt("maxComboReached", maxComboReached)
+        editor.putString("unlockedAchievements", unlockedAchievements.joinToString(",") { it.name })
+
+        // NEW: Synergy System
+        editor.putBoolean("synergiesEnabled", synergiesEnabled)
 
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
     }
@@ -2150,6 +2307,25 @@ object GameState {
             normalAbilities = normalAbilities,
             ultimateAbility = ultimateAbility
         )
+
+        // NEW: Achievement System
+        totalClicksAllTime = prefs.getLong("totalClicksAllTime", 0L)
+        maxComboReached = prefs.getInt("maxComboReached", 0)
+
+        val achievementsString = prefs.getString("unlockedAchievements", "")
+        unlockedAchievements.clear()
+        if (!achievementsString.isNullOrEmpty()) {
+            achievementsString.split(",").forEach { name ->
+                try {
+                    unlockedAchievements.add(AchievementType.valueOf(name))
+                } catch (e: IllegalArgumentException) {
+                    // Ignore invalid achievement names
+                }
+            }
+        }
+
+        // NEW: Synergy System
+        synergiesEnabled = prefs.getBoolean("synergiesEnabled", false)
 
         // Reset passive points timer to prevent huge point gains on first load
         lastPassivePointsUpdate = System.currentTimeMillis()
@@ -3492,3 +3668,197 @@ object MonsterTemplates {
         return enemy
     }
 }
+
+// ========== NEW: Achievement System ==========
+
+enum class AchievementType(
+    val displayName: String,
+    val description: String,
+    val clickBonus: Double = 0.0,      // Multiplier bonus for clicks
+    val passiveBonus: Double = 0.0,    // Multiplier bonus for passive income
+    val requirement: (GameState) -> Boolean
+) {
+    // Click-based achievements
+    FIRST_CLICK(
+        "First Steps",
+        "Make your first click",
+        clickBonus = 0.05,
+        requirement = { it.totalClicksAllTime >= 1 }
+    ),
+    CLICKER_100(
+        "Clicker Novice",
+        "Make 100 clicks",
+        clickBonus = 0.10,
+        requirement = { it.totalClicksAllTime >= 100 }
+    ),
+    CLICKER_1000(
+        "Clicker Adept",
+        "Make 1,000 clicks",
+        clickBonus = 0.15,
+        requirement = { it.totalClicksAllTime >= 1000 }
+    ),
+    CLICKER_10000(
+        "Clicker Master",
+        "Make 10,000 clicks",
+        clickBonus = 0.25,
+        requirement = { it.totalClicksAllTime >= 10000 }
+    ),
+    CLICKER_100000(
+        "Clicker Legend",
+        "Make 100,000 clicks",
+        clickBonus = 0.50,
+        requirement = { it.totalClicksAllTime >= 100000 }
+    ),
+
+    // Prestige-based achievements
+    FIRST_PRESTIGE(
+        "Rebirth",
+        "Perform your first prestige",
+        clickBonus = 0.10,
+        requirement = { it.prestigesClaimed >= 1 }
+    ),
+    PRESTIGE_10(
+        "Prestige Veteran",
+        "Prestige 10 times",
+        clickBonus = 0.25,
+        requirement = { it.prestigesClaimed >= 10 }
+    ),
+    PRESTIGE_50(
+        "Prestige Master",
+        "Prestige 50 times",
+        clickBonus = 0.50,
+        passiveBonus = 0.25,
+        requirement = { it.prestigesClaimed >= 50 }
+    ),
+
+    // Dice progression achievements
+    UNLOCK_D20(
+        "Rainbow Master",
+        "Unlock the D20",
+        clickBonus = 0.25,
+        requirement = { it.d20Active }
+    ),
+    ALL_COLORS_LEVEL_10(
+        "Color Mastery",
+        "Get all unlocked colors to Level 10",
+        clickBonus = 0.50,
+        requirement = {
+            val availableColors = it.getAvailableColors()
+            availableColors.all { color -> it.getUpgradeLevel(color) >= 10 }
+        }
+    ),
+
+    // Wealth achievements
+    LIFETIME_100K(
+        "Wealthy",
+        "Earn 100,000 lifetime points",
+        passiveBonus = 0.10,
+        requirement = { it.lifetimeScore >= 100000 }
+    ),
+    LIFETIME_1M(
+        "Rich",
+        "Earn 1 million lifetime points",
+        passiveBonus = 0.25,
+        requirement = { it.lifetimeScore >= 1000000 }
+    ),
+    LIFETIME_10M(
+        "Tycoon",
+        "Earn 10 million lifetime points",
+        passiveBonus = 0.50,
+        clickBonus = 0.25,
+        requirement = { it.lifetimeScore >= 10000000 }
+    ),
+
+    // Combat achievements
+    FIRST_COMBAT(
+        "Warrior's Path",
+        "Win your first combat",
+        clickBonus = 0.10,
+        requirement = { it.storyCompletedCount >= 1 || it.auftragCompletedCount >= 1 }
+    ),
+    COMBAT_10(
+        "Veteran Fighter",
+        "Win 10 combats",
+        clickBonus = 0.20,
+        requirement = { (it.storyCompletedCount + it.auftragCompletedCount) >= 10 }
+    ),
+
+    // Combo achievements
+    COMBO_10(
+        "Combo Starter",
+        "Reach a 10x combo",
+        clickBonus = 0.10,
+        requirement = { it.maxComboReached >= 10 }
+    ),
+    COMBO_50(
+        "Combo Expert",
+        "Reach a 50x combo",
+        clickBonus = 0.25,
+        requirement = { it.maxComboReached >= 50 }
+    ),
+    COMBO_100(
+        "Combo Master",
+        "Reach a 100x combo",
+        clickBonus = 0.50,
+        requirement = { it.maxComboReached >= 100 }
+    ),
+
+    // Special achievements (unlock features)
+    UNLOCK_SYNERGIES(
+        "Synergy Seeker",
+        "Get any 3 colors to Level 5+",
+        clickBonus = 0.0,
+        requirement = {
+            it.getAvailableColors().count { color -> it.getUpgradeLevel(color) >= 5 } >= 3
+        }
+    );
+
+    fun isUnlocked(gameState: GameState): Boolean = requirement(gameState)
+}
+
+data class ColorSynergy(
+    val name: String,
+    val colors: List<CubeColor>,
+    val minLevel: Int,
+    val bonus: Double,  // Multiplier bonus
+    val description: String
+)
+
+// Predefined synergies
+val COLOR_SYNERGIES = listOf(
+    ColorSynergy(
+        name = "Primary Colors",
+        colors = listOf(CubeColor.RED, CubeColor.GREEN, CubeColor.BLUE),
+        minLevel = 10,
+        bonus = 0.50,
+        description = "Red, Green, Blue all at Level 10+ → +50% to these colors"
+    ),
+    ColorSynergy(
+        name = "Secondary Colors",
+        colors = listOf(CubeColor.YELLOW, CubeColor.MAGENTA, CubeColor.CYAN),
+        minLevel = 10,
+        bonus = 0.50,
+        description = "Yellow, Magenta, Cyan all at Level 10+ → +50% to these colors"
+    ),
+    ColorSynergy(
+        name = "Warm Spectrum",
+        colors = listOf(CubeColor.RED, CubeColor.ORANGE, CubeColor.YELLOW, CubeColor.PINK),
+        minLevel = 5,
+        bonus = 0.25,
+        description = "All warm colors at Level 5+ → +25% to these colors"
+    ),
+    ColorSynergy(
+        name = "Cool Spectrum",
+        colors = listOf(CubeColor.BLUE, CubeColor.CYAN, CubeColor.TURQUOISE, CubeColor.TEAL),
+        minLevel = 5,
+        bonus = 0.25,
+        description = "All cool colors at Level 5+ → +25% to these colors"
+    ),
+    ColorSynergy(
+        name = "Rainbow Unity",
+        colors = CubeColor.values().toList(),
+        minLevel = 5,
+        bonus = 1.0,
+        description = "ALL colors at Level 5+ → +100% to ALL colors!"
+    )
+)
