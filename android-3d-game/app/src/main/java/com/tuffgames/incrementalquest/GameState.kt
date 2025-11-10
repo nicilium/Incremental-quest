@@ -140,6 +140,57 @@ object GameState {
     private val purchasedIAPs = mutableSetOf<IAPType>()
     private var adsRemoved = false  // Special flag for Remove Ads
 
+    // ========== IDLE SYSTEM EXTENSIONS ==========
+
+    // Ascension System (Second Prestige Layer)
+    var celestialEssence = 0
+        private set
+    var totalCelestialEssenceEarned = 0
+        private set
+    var ascensions = 0
+        private set
+    private val ascensionUpgrades = mutableMapOf<AscensionUpgrade, Int>()
+
+    // Artifacts System
+    private val equippedArtifacts = mutableListOf<Artifact?>()
+    private val artifactInventory = mutableListOf<Artifact>()
+    private val maxEquippedArtifacts = 5
+    private var nextArtifactId = 0
+
+    // Research/Tech Tree
+    var researchPoints = 0.0
+        private set
+    private val unlockedResearches = mutableSetOf<ResearchNode>()
+    private var lastResearchPointsUpdate = 0L
+
+    // Challenges
+    private val completedChallenges = mutableSetOf<ChallengeType>()
+    var activeChallengeType: ChallengeType? = null
+        private set
+    private var challengeStartPoints = 0.0
+
+    // Milestones
+    private val claimedMilestones = mutableSetOf<Int>()
+
+    // Daily/Weekly Quests
+    private val activeQuests = mutableListOf<Quest>()
+    private val completedQuestsToday = mutableSetOf<QuestType>()
+    private var lastQuestResetTime = 0L
+    private var weeklyQuestCompleted = false
+    private var lastWeeklyResetTime = 0L
+
+    // Offline Automation
+    var autoPrestigeEnabled = false
+        private set
+    var autoPrestigeThreshold = 10000.0
+        private set
+    var autoUpgradeEnabled = false
+        private set
+    var offlineMultiplierLevel = 0
+        private set
+    var offlineTimeCapLevel = 0
+        private set
+
     // ========== NEW: Click Combo System ==========
     private var currentCombo = 0
     private var lastClickTime = 0L
@@ -306,13 +357,33 @@ object GameState {
         // IAP: VIP Multiplier (+50% to all points)
         val vipMulti = getIAPVIPMultiplier()
 
+        // Ascension Multiplier
+        val ascensionMulti = getAscensionMultiplier()
+
+        // Milestone Multiplier
+        val milestoneMulti = getMilestoneMultiplier()
+
+        // Artifact: Click Speed Bonus
+        val artifactClickBonus = 1.0 + getArtifactBonus(ArtifactType.CLICK_SPEED)
+
+        // Research: Multi-Click
+        val multiClickBonus = if (hasResearch(ResearchNode.MULTI_CLICK)) 2.0 else 1.0
+
+        // Research: Power Surge
+        val powerSurgeBonus = if (hasResearch(ResearchNode.POWER_SURGE)) 1.5 else 1.0
+
         // Total points with all multipliers applied
         var totalPoints = (basePoints + upgradeBonus).toDouble() *
                          permanentMulti *
                          (1.0 + achievementBonus + synergyBonus) *
                          comboMulti *
                          clickBoostMulti *
-                         vipMulti
+                         vipMulti *
+                         ascensionMulti *
+                         milestoneMulti *
+                         artifactClickBonus *
+                         multiClickBonus *
+                         powerSurgeBonus
 
         // Extra Dice: Apply flat score bonus (consumed)
         if (flatScoreBonusNextClick > 0) {
@@ -338,6 +409,14 @@ object GameState {
         // Unlock upgrades at 200 points
         if (totalScore >= 200 && !upgradesUnlocked) {
             upgradesUnlocked = true
+        }
+
+        // Check milestones
+        checkMilestones()
+
+        // Check for auto-prestige
+        if (autoPrestigeEnabled && totalScore >= autoPrestigeThreshold) {
+            performPrestige()
         }
 
         // Abgelaufene Buffs clearen
@@ -755,6 +834,348 @@ object GameState {
         return hasPurchased(IAPType.ETERNAL_BOOST)
     }
 
+    // ========== IDLE SYSTEM MANAGEMENT ==========
+
+    // ===== Ascension System =====
+
+    fun canAscend(): Boolean {
+        return divineEssence >= getAscensionCost()
+    }
+
+    fun getAscensionCost(): Int {
+        return 1000 + (ascensions * 500)  // 1000, 1500, 2000, etc.
+    }
+
+    fun performAscension(): Boolean {
+        if (!canAscend()) return false
+
+        val ceGain = 1 + (divineEssence / 1000)  // 1 CE per 1000 DE
+        celestialEssence += ceGain
+        totalCelestialEssenceEarned += ceGain
+        ascensions++
+
+        // Reset DE and gold
+        divineEssence = 0
+        gold = 0
+
+        // Keep everything else (permanent upgrades, IAPs, etc.)
+        return true
+    }
+
+    fun getAscensionUpgradeLevel(upgrade: AscensionUpgrade): Int {
+        return ascensionUpgrades[upgrade] ?: 0
+    }
+
+    fun getAscensionUpgradeCost(upgrade: AscensionUpgrade): Int {
+        val currentLevel = getAscensionUpgradeLevel(upgrade)
+        return upgrade.getCost(currentLevel)
+    }
+
+    fun canAffordAscensionUpgrade(upgrade: AscensionUpgrade): Boolean {
+        val cost = getAscensionUpgradeCost(upgrade)
+        return cost > 0 && celestialEssence >= cost
+    }
+
+    fun buyAscensionUpgrade(upgrade: AscensionUpgrade): Boolean {
+        if (!canAffordAscensionUpgrade(upgrade)) return false
+
+        val cost = getAscensionUpgradeCost(upgrade)
+        celestialEssence -= cost
+        ascensionUpgrades[upgrade] = getAscensionUpgradeLevel(upgrade) + 1
+
+        return true
+    }
+
+    private fun getAscensionMultiplier(): Double {
+        var multiplier = 1.0
+        val universalLevel = getAscensionUpgradeLevel(AscensionUpgrade.UNIVERSAL_MULTIPLIER)
+        multiplier += universalLevel * 0.10  // +10% per level
+        return multiplier
+    }
+
+    // ===== Artifacts System =====
+
+    fun rollArtifact(): Artifact? {
+        // 10% chance after prestige
+        if (Random.nextDouble() > 0.10) return null
+
+        val rarity = ArtifactRarity.randomRarity()
+        val type = ArtifactType.values().random()
+        return Artifact(nextArtifactId++, type, rarity)
+    }
+
+    fun addArtifactToInventory(artifact: Artifact) {
+        artifactInventory.add(artifact)
+    }
+
+    fun getArtifactInventory(): List<Artifact> {
+        return artifactInventory.toList()
+    }
+
+    fun getEquippedArtifacts(): List<Artifact?> {
+        return equippedArtifacts.toList()
+    }
+
+    fun equipArtifact(artifact: Artifact, slot: Int): Boolean {
+        if (slot < 0 || slot >= maxEquippedArtifacts) return false
+        if (!artifactInventory.contains(artifact)) return false
+
+        // Unequip current artifact in slot
+        equippedArtifacts[slot]?.let { artifactInventory.add(it) }
+
+        // Equip new artifact
+        while (equippedArtifacts.size <= slot) {
+            equippedArtifacts.add(null)
+        }
+        equippedArtifacts[slot] = artifact
+        artifactInventory.remove(artifact)
+
+        return true
+    }
+
+    fun unequipArtifact(slot: Int): Boolean {
+        if (slot < 0 || slot >= equippedArtifacts.size) return false
+        val artifact = equippedArtifacts[slot] ?: return false
+
+        equippedArtifacts[slot] = null
+        artifactInventory.add(artifact)
+        return true
+    }
+
+    private fun getArtifactBonus(type: ArtifactType): Double {
+        return equippedArtifacts.filterNotNull()
+            .filter { it.type == type }
+            .sumOf { it.value }
+    }
+
+    // ===== Research System =====
+
+    fun updateResearchPoints() {
+        val currentTime = System.currentTimeMillis()
+        if (lastResearchPointsUpdate == 0L) {
+            lastResearchPointsUpdate = currentTime
+            return
+        }
+
+        val deltaSeconds = (currentTime - lastResearchPointsUpdate) / 1000.0
+        // Base: 1 research point per minute
+        var pointsPerSecond = 1.0 / 60.0
+
+        // Ascension bonus
+        val researchAccelLevel = getAscensionUpgradeLevel(AscensionUpgrade.RESEARCH_ACCELERATOR)
+        pointsPerSecond *= (1.0 + researchAccelLevel * 0.5)
+
+        // Artifact bonus
+        pointsPerSecond *= (1.0 + getArtifactBonus(ArtifactType.RESEARCH_BOOST))
+
+        researchPoints += pointsPerSecond * deltaSeconds
+        lastResearchPointsUpdate = currentTime
+    }
+
+    fun hasResearch(node: ResearchNode): Boolean {
+        return unlockedResearches.contains(node)
+    }
+
+    fun canAffordResearch(node: ResearchNode): Boolean {
+        if (hasResearch(node)) return false
+        if (!node.prerequisites.all { hasResearch(it) }) return false
+        return researchPoints >= node.cost
+    }
+
+    fun unlockResearch(node: ResearchNode): Boolean {
+        if (!canAffordResearch(node)) return false
+
+        researchPoints -= node.cost
+        unlockedResearches.add(node)
+
+        // Apply research effects
+        when (node) {
+            ResearchNode.AUTO_UPGRADE_BASIC -> autoUpgradeEnabled = true
+            else -> {}
+        }
+
+        return true
+    }
+
+    fun getUnlockedResearches(): List<ResearchNode> {
+        return unlockedResearches.toList()
+    }
+
+    // ===== Challenges System =====
+
+    fun startChallenge(challenge: ChallengeType): Boolean {
+        if (activeChallengeType != null) return false
+
+        activeChallengeType = challenge
+        challengeStartPoints = totalScore
+        return true
+    }
+
+    fun completeChallenge(): Boolean {
+        val challenge = activeChallengeType ?: return false
+        if (!challenge.isCompleted(this, challengeStartPoints)) return false
+
+        completedChallenges.add(challenge)
+        activeChallengeType = null
+        return true
+    }
+
+    fun abandonChallenge() {
+        activeChallengeType = null
+    }
+
+    fun hasChallengeCompleted(challenge: ChallengeType): Boolean {
+        return completedChallenges.contains(challenge)
+    }
+
+    fun getCompletedChallenges(): List<ChallengeType> {
+        return completedChallenges.toList()
+    }
+
+    // ===== Milestones System =====
+
+    fun checkMilestones() {
+        LIFETIME_MILESTONES.forEach { milestone ->
+            if (lifetimeScore >= milestone.lifetimePoints &&
+                !claimedMilestones.contains(milestone.lifetimePoints.toInt())) {
+                claimMilestone(milestone)
+            }
+        }
+    }
+
+    private fun claimMilestone(milestone: Milestone) {
+        claimedMilestones.add(milestone.lifetimePoints.toInt())
+
+        // Apply rewards
+        milestone.bonus.ceReward.let { if (it > 0) celestialEssence += it }
+    }
+
+    fun getMilestoneMultiplier(): Double {
+        var multiplier = 1.0
+        LIFETIME_MILESTONES.forEach { milestone ->
+            if (claimedMilestones.contains(milestone.lifetimePoints.toInt())) {
+                multiplier *= milestone.bonus.passiveMultiplier * milestone.bonus.allMultiplier
+            }
+        }
+        return multiplier
+    }
+
+    fun getClaimedMilestones(): List<Int> {
+        return claimedMilestones.toList()
+    }
+
+    // ===== Daily Quest System =====
+
+    fun updateQuests() {
+        val currentTime = System.currentTimeMillis()
+
+        // Reset daily quests (every 24 hours)
+        if (currentTime - lastQuestResetTime > 24 * 60 * 60 * 1000L) {
+            resetDailyQuests()
+            lastQuestResetTime = currentTime
+        }
+
+        // Reset weekly quest (every 7 days)
+        if (currentTime - lastWeeklyResetTime > 7 * 24 * 60 * 60 * 1000L) {
+            weeklyQuestCompleted = false
+            lastWeeklyResetTime = currentTime
+            generateWeeklyQuest()
+        }
+
+        // Generate daily quests if empty
+        if (activeQuests.isEmpty()) {
+            generateDailyQuests()
+        }
+    }
+
+    private fun resetDailyQuests() {
+        activeQuests.clear()
+        completedQuestsToday.clear()
+    }
+
+    private fun generateDailyQuests() {
+        val dailyQuestTypes = QuestType.values().filter { !it.isWeekly }.shuffled().take(3)
+        dailyQuestTypes.forEach { type ->
+            val goal = when (type) {
+                QuestType.CLICK_1000 -> 1000
+                QuestType.REACH_COMBO_100 -> 100
+                QuestType.PRESTIGE_3 -> 3
+                QuestType.UPGRADE_10_LEVELS -> 10
+                QuestType.WATCH_5_ADS -> 5
+                else -> 1
+            }
+            activeQuests.add(Quest(type, goal = goal))
+        }
+    }
+
+    private fun generateWeeklyQuest() {
+        if (!weeklyQuestCompleted) {
+            activeQuests.add(Quest(QuestType.REACH_1M_POINTS, goal = 1_000_000))
+        }
+    }
+
+    fun getActiveQuests(): List<Quest> {
+        return activeQuests.toList()
+    }
+
+    fun completeQuest(quest: Quest) {
+        if (quest.completed) return
+
+        quest.completed = true
+        completedQuestsToday.add(quest.type)
+
+        // Grant rewards
+        val reward = quest.type.getReward()
+        gold += reward.gold
+        divineEssence += reward.de
+        researchPoints += reward.researchPoints
+        if (reward.artifact) {
+            val rarity = reward.artifactRarity ?: ArtifactRarity.randomRarity()
+            val artifact = Artifact(nextArtifactId++, ArtifactType.values().random(), rarity)
+            addArtifactToInventory(artifact)
+        }
+
+        if (quest.type.isWeekly) {
+            weeklyQuestCompleted = true
+        }
+    }
+
+    // ===== Offline Automation =====
+
+    fun unlockAutoPrestige(cost: Int): Boolean {
+        if (divineEssence < cost) return false
+        divineEssence -= cost
+        autoPrestigeEnabled = true
+        return true
+    }
+
+    fun setAutoPrestigeThreshold(threshold: Double) {
+        autoPrestigeThreshold = threshold
+    }
+
+    fun buyOfflineMultiplier(cost: Int): Boolean {
+        if (divineEssence < cost) return false
+        divineEssence -= cost
+        offlineMultiplierLevel++
+        return true
+    }
+
+    fun getOfflineMultiplier(): Double {
+        return 1.0 + (offlineMultiplierLevel * 0.5)  // +50% per level
+    }
+
+    fun buyOfflineTimeCap(cost: Int): Boolean {
+        if (divineEssence < cost) return false
+        divineEssence -= cost
+        offlineTimeCapLevel++
+        return true
+    }
+
+    fun getOfflineTimeCap(): Long {
+        // Base 1 hour, +4 hours per level
+        return (1 + offlineTimeCapLevel * 4) * 60 * 60 * 1000L
+    }
+
     // ========== NEW: Click Combo System ==========
 
     private fun updateCombo() {
@@ -884,6 +1305,24 @@ object GameState {
         val iapPassiveMulti = getIAPPassiveMultiplier()  // 2x from Passive IAP
         val vipMulti = getIAPVIPMultiplier()              // +50% from VIP
         total *= iapPassiveMulti * vipMulti
+
+        // Apply Ascension multiplier
+        total *= getAscensionMultiplier()
+
+        // Apply Milestone multiplier
+        total *= getMilestoneMultiplier()
+
+        // Apply Artifact bonuses
+        total *= (1.0 + getArtifactBonus(ArtifactType.PASSIVE_BOOST))
+
+        // Apply Research bonuses
+        if (hasResearch(ResearchNode.IDLE_MASTERY)) {
+            total *= 2.0  // +100%
+        }
+
+        // Apply Ascension Time Warp
+        val timeWarpLevel = getAscensionUpgradeLevel(AscensionUpgrade.TIME_WARP)
+        total *= (1.0 + timeWarpLevel * 0.5)
 
         return total
     }
@@ -2100,11 +2539,34 @@ object GameState {
         boostedDEReward = (boostedDEReward * iapDEMulti).toInt()
         goldReward = (goldReward * iapGoldMulti).toInt()
 
+        // Apply Artifact DE Boost
+        boostedDEReward = (boostedDEReward * (1.0 + getArtifactBonus(ArtifactType.DE_BOOST))).toInt()
+
+        // Apply Ascension Prestige Potency
+        if (getAscensionUpgradeLevel(AscensionUpgrade.PRESTIGE_POTENCY) > 0) {
+            boostedDEReward *= 2
+        }
+
+        // Apply Research: Prestige Echo
+        if (hasResearch(ResearchNode.PRESTIGE_ECHO)) {
+            boostedDEReward = (boostedDEReward * 1.25).toInt()
+        }
+
         // Apply rewards
         divineEssence += boostedDEReward
         totalDivineEssenceEarned += boostedDEReward
         prestigesClaimed++
         gold += goldReward
+
+        // Roll for artifact (10% chance)
+        val artifact = rollArtifact()
+        artifact?.let { addArtifactToInventory(it) }
+
+        // Update Research Points
+        updateResearchPoints()
+
+        // Update Quests
+        updateQuests()
 
         // Reset everything (except divineEssence, gold, lifetimeScore, permanentUpgrades)
         totalScore = 0.0
@@ -2336,6 +2798,61 @@ object GameState {
         // NEW: In-App Purchase System
         editor.putString("purchasedIAPs", purchasedIAPs.joinToString(",") { it.name })
         editor.putBoolean("adsRemoved", adsRemoved)
+
+        // IDLE SYSTEM EXTENSIONS
+        // Ascension
+        editor.putInt("celestialEssence", celestialEssence)
+        editor.putInt("totalCelestialEssenceEarned", totalCelestialEssenceEarned)
+        editor.putInt("ascensions", ascensions)
+        AscensionUpgrade.values().forEach { upgrade ->
+            editor.putInt("ascensionUpgrade_${upgrade.name}", getAscensionUpgradeLevel(upgrade))
+        }
+
+        // Artifacts
+        editor.putInt("nextArtifactId", nextArtifactId)
+        editor.putInt("artifactInventorySize", artifactInventory.size)
+        artifactInventory.forEachIndexed { index, artifact ->
+            editor.putInt("artifact_${index}_id", artifact.id)
+            editor.putString("artifact_${index}_type", artifact.type.name)
+            editor.putString("artifact_${index}_rarity", artifact.rarity.name)
+            editor.putFloat("artifact_${index}_value", artifact.value.toFloat())
+        }
+        editor.putInt("equippedArtifactsSize", equippedArtifacts.size)
+        equippedArtifacts.forEachIndexed { index, artifact ->
+            if (artifact != null) {
+                editor.putInt("equippedArtifact_${index}_id", artifact.id)
+                editor.putString("equippedArtifact_${index}_type", artifact.type.name)
+                editor.putString("equippedArtifact_${index}_rarity", artifact.rarity.name)
+                editor.putFloat("equippedArtifact_${index}_value", artifact.value.toFloat())
+            } else {
+                editor.putInt("equippedArtifact_${index}_id", -1)  // Empty slot
+            }
+        }
+
+        // Research
+        editor.putFloat("researchPoints", researchPoints.toFloat())
+        editor.putLong("lastResearchPointsUpdate", lastResearchPointsUpdate)
+        editor.putString("unlockedResearches", unlockedResearches.joinToString(",") { it.name })
+
+        // Challenges
+        editor.putString("completedChallenges", completedChallenges.joinToString(",") { it.name })
+        editor.putString("activeChallengeType", activeChallengeType?.name ?: "")
+        editor.putFloat("challengeStartPoints", challengeStartPoints.toFloat())
+
+        // Milestones
+        editor.putString("claimedMilestones", claimedMilestones.joinToString(",") { it.toString() })
+
+        // Quests
+        editor.putLong("lastQuestResetTime", lastQuestResetTime)
+        editor.putLong("lastWeeklyResetTime", lastWeeklyResetTime)
+        editor.putBoolean("weeklyQuestCompleted", weeklyQuestCompleted)
+
+        // Offline Automation
+        editor.putBoolean("autoPrestigeEnabled", autoPrestigeEnabled)
+        editor.putFloat("autoPrestigeThreshold", autoPrestigeThreshold.toFloat())
+        editor.putBoolean("autoUpgradeEnabled", autoUpgradeEnabled)
+        editor.putInt("offlineMultiplierLevel", offlineMultiplierLevel)
+        editor.putInt("offlineTimeCapLevel", offlineTimeCapLevel)
 
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
     }
@@ -2713,6 +3230,127 @@ object GameState {
             }
         }
         adsRemoved = prefs.getBoolean("adsRemoved", false)
+
+        // IDLE SYSTEM EXTENSIONS
+        // Ascension
+        celestialEssence = prefs.getInt("celestialEssence", 0)
+        totalCelestialEssenceEarned = prefs.getInt("totalCelestialEssenceEarned", 0)
+        ascensions = prefs.getInt("ascensions", 0)
+        ascensionUpgrades.clear()
+        AscensionUpgrade.values().forEach { upgrade ->
+            val level = prefs.getInt("ascensionUpgrade_${upgrade.name}", 0)
+            if (level > 0) {
+                ascensionUpgrades[upgrade] = level
+            }
+        }
+
+        // Artifacts
+        nextArtifactId = prefs.getInt("nextArtifactId", 0)
+        artifactInventory.clear()
+        val artifactInventorySize = prefs.getInt("artifactInventorySize", 0)
+        for (i in 0 until artifactInventorySize) {
+            val id = prefs.getInt("artifact_${i}_id", -1)
+            val typeName = prefs.getString("artifact_${i}_type", null)
+            val rarityName = prefs.getString("artifact_${i}_rarity", null)
+            val value = prefs.getFloat("artifact_${i}_value", 0f).toDouble()
+            if (id >= 0 && typeName != null && rarityName != null) {
+                try {
+                    val type = ArtifactType.valueOf(typeName)
+                    val rarity = ArtifactRarity.valueOf(rarityName)
+                    artifactInventory.add(Artifact(id, type, rarity, value))
+                } catch (e: IllegalArgumentException) {
+                    // Ignore invalid artifacts
+                }
+            }
+        }
+
+        equippedArtifacts.clear()
+        val equippedArtifactsSize = prefs.getInt("equippedArtifactsSize", 0)
+        for (i in 0 until equippedArtifactsSize) {
+            val id = prefs.getInt("equippedArtifact_${i}_id", -1)
+            if (id < 0) {
+                equippedArtifacts.add(null)  // Empty slot
+            } else {
+                val typeName = prefs.getString("equippedArtifact_${i}_type", null)
+                val rarityName = prefs.getString("equippedArtifact_${i}_rarity", null)
+                val value = prefs.getFloat("equippedArtifact_${i}_value", 0f).toDouble()
+                if (typeName != null && rarityName != null) {
+                    try {
+                        val type = ArtifactType.valueOf(typeName)
+                        val rarity = ArtifactRarity.valueOf(rarityName)
+                        equippedArtifacts.add(Artifact(id, type, rarity, value))
+                    } catch (e: IllegalArgumentException) {
+                        equippedArtifacts.add(null)
+                    }
+                } else {
+                    equippedArtifacts.add(null)
+                }
+            }
+        }
+
+        // Research
+        researchPoints = prefs.getFloat("researchPoints", 0f).toDouble()
+        lastResearchPointsUpdate = prefs.getLong("lastResearchPointsUpdate", System.currentTimeMillis())
+        unlockedResearches.clear()
+        val researchesString = prefs.getString("unlockedResearches", "")
+        if (!researchesString.isNullOrEmpty()) {
+            researchesString.split(",").forEach { name ->
+                try {
+                    unlockedResearches.add(ResearchNode.valueOf(name))
+                } catch (e: IllegalArgumentException) {
+                    // Ignore invalid research nodes
+                }
+            }
+        }
+
+        // Challenges
+        completedChallenges.clear()
+        val challengesString = prefs.getString("completedChallenges", "")
+        if (!challengesString.isNullOrEmpty()) {
+            challengesString.split(",").forEach { name ->
+                try {
+                    completedChallenges.add(ChallengeType.valueOf(name))
+                } catch (e: IllegalArgumentException) {
+                    // Ignore invalid challenge types
+                }
+            }
+        }
+        val activeChallengeString = prefs.getString("activeChallengeType", "")
+        activeChallengeType = if (!activeChallengeString.isNullOrEmpty()) {
+            try {
+                ChallengeType.valueOf(activeChallengeString)
+            } catch (e: IllegalArgumentException) {
+                null
+            }
+        } else {
+            null
+        }
+        challengeStartPoints = prefs.getFloat("challengeStartPoints", 0f).toDouble()
+
+        // Milestones
+        claimedMilestones.clear()
+        val milestonesString = prefs.getString("claimedMilestones", "")
+        if (!milestonesString.isNullOrEmpty()) {
+            milestonesString.split(",").forEach { str ->
+                try {
+                    claimedMilestones.add(str.toInt())
+                } catch (e: NumberFormatException) {
+                    // Ignore invalid milestone IDs
+                }
+            }
+        }
+
+        // Quests
+        lastQuestResetTime = prefs.getLong("lastQuestResetTime", System.currentTimeMillis())
+        lastWeeklyResetTime = prefs.getLong("lastWeeklyResetTime", System.currentTimeMillis())
+        weeklyQuestCompleted = prefs.getBoolean("weeklyQuestCompleted", false)
+
+        // Offline Automation
+        autoPrestigeEnabled = prefs.getBoolean("autoPrestigeEnabled", false)
+        autoPrestigeThreshold = prefs.getFloat("autoPrestigeThreshold", 10000f).toDouble()
+        autoUpgradeEnabled = prefs.getBoolean("autoUpgradeEnabled", false)
+        offlineMultiplierLevel = prefs.getInt("offlineMultiplierLevel", 0)
+        offlineTimeCapLevel = prefs.getInt("offlineTimeCapLevel", 0)
 
         // Reset passive points timer to prevent huge point gains on first load
         lastPassivePointsUpdate = System.currentTimeMillis()
