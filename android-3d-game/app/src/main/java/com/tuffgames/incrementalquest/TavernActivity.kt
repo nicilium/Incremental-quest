@@ -343,7 +343,7 @@ Patrick lehnt sich über die Theke und zeigt auf ein schwarzes Brett:
             val storyCombatButton = Button(this)
             storyCombatButton.text = """
 📖 STORY-KAMPF
-${if (!GameState.getActiveCombat()?.isTutorial?.let { it } == true && GameState.getCharacterStats()?.level == 1)
+${if (GameState.getActiveCombat()?.isTutorial != true && GameState.getCharacterStats()?.level == 1)
     "⚠️ TUTORIAL verfügbar!" else "Episches Abenteuer"}
             """.trimIndent()
             storyCombatButton.textSize = 14f

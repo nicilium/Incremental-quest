@@ -121,6 +121,20 @@ object GameState {
 
     private var buffOffersWithoutEssence = 0  // Bad Luck Protection Counter
 
+    // Skill Tree System
+    private val unlockedSkills = mutableSetOf<UniversalSkill>()  // Which skills are unlocked
+    var availableSkillPoints = 0  // Unspent skill points
+        private set
+    private var totalSkillPointsEarned = 0  // For tracking
+    private var lastRespecTime = 0L  // Cooldown tracking
+
+    // Level 100 Active Skill: Zeitdilatation
+    var zeitdilatationActive = false
+        private set
+    var zeitdilatationEndTime = 0L
+        private set
+    private var zeitdilatationLastUsed = 0L
+
     // Basis-Punktwerte für jede Farbe
     private val baseColorPoints = mapOf(
         CubeColor.RED to 1,
@@ -880,7 +894,7 @@ object GameState {
 
         // Formula: BaseKosten × Seltenheits-Multiplikator × (Level² / 10) × 1.03^Level
         val quadraticComponent = (currentTier * currentTier) / 10.0
-        val exponentialComponent = kotlin.math.pow(1.03, currentTier.toDouble())
+        val exponentialComponent = 1.03.pow(currentTier.toDouble())
 
         val cost = baseCost * rarityMultiplier * quadraticComponent * exponentialComponent
 
@@ -1676,6 +1690,321 @@ object GameState {
         }
 
         return clicksToAdd
+    }
+
+    // ========== Skill Tree System ==========
+
+    // Grant skill point (called on level up)
+    fun grantSkillPoint() {
+        availableSkillPoints++
+        totalSkillPointsEarned++
+    }
+
+    // Check if skill can be unlocked
+    fun canUnlockSkill(skill: UniversalSkill): Boolean {
+        if (unlockedSkills.contains(skill)) return false  // Already unlocked
+        if (availableSkillPoints < 1) return false  // No points available
+
+        val characterLevel = characterStats?.level ?: 1
+        return skill.isUnlockable(characterLevel, unlockedSkills)
+    }
+
+    // Unlock a skill
+    fun unlockSkill(skill: UniversalSkill): Boolean {
+        if (!canUnlockSkill(skill)) return false
+
+        unlockedSkills.add(skill)
+        availableSkillPoints--
+
+        // Apply immediate effects (like max HP/Mana increases)
+        applySkillEffects(skill)
+
+        return true
+    }
+
+    // Apply immediate stat changes from skills
+    private fun applySkillEffects(skill: UniversalSkill) {
+        characterStats?.let { stats ->
+            when (skill) {
+                // Flat HP bonuses
+                UniversalSkill.ROBUSTHEIT_I -> stats.maxHP += 10
+                UniversalSkill.ROBUSTHEIT_II -> stats.maxHP += 20
+                UniversalSkill.ROBUSTHEIT_III -> stats.maxHP += 30
+                UniversalSkill.ROBUSTHEIT_IV -> stats.maxHP += 50
+                UniversalSkill.ROBUSTHEIT_V -> stats.maxHP += 75
+
+                // Flat Armor bonuses
+                UniversalSkill.RUESTUNGS_TRAINING_I -> stats.armorBonus += 1
+
+                // Flat Mana bonuses
+                UniversalSkill.MANA_POOL_I -> stats.maxMana += 10
+                UniversalSkill.MANA_POOL_II -> stats.maxMana += 20
+                UniversalSkill.MANA_POOL_III -> stats.maxMana += 30
+                UniversalSkill.MANA_POOL_IV -> stats.maxMana += 50
+
+                // Mana regeneration (applied dynamically in combat, not stored)
+                UniversalSkill.SCHNELLE_REGENERATION -> { /* Applied in combat system */ }
+
+                else -> { /* Other skills are applied dynamically via getSkillBonus() */ }
+            }
+        }
+    }
+
+    // Get bonus multiplier from skills for a specific category
+    fun getSkillBonus(category: String): Double {
+        var bonus = 1.0
+
+        for (skill in unlockedSkills) {
+            when (category) {
+                "click_power" -> when (skill) {
+                    UniversalSkill.STAERKERE_KLICKS -> bonus += 0.10
+                    UniversalSkill.FLEISSIGE_HAENDE -> bonus += 0.15
+                    UniversalSkill.MEGA_KLICK_I -> bonus += 0.25
+                    UniversalSkill.MEGA_KLICK_II -> bonus += 0.50
+                    UniversalSkill.CLICK_MULTI_I -> bonus += 0.20
+                    UniversalSkill.CLICK_MULTI_II -> bonus += 0.30
+                    UniversalSkill.CLICK_MULTI_III -> bonus += 0.50
+                    UniversalSkill.CLICK_MULTI_IV -> bonus += 0.75
+                    UniversalSkill.CLICK_MULTI_V -> bonus += 1.00
+                    UniversalSkill.ULTRA_KLICK -> bonus += 1.00
+                    UniversalSkill.TITANISCHER_KLICK -> bonus += 2.00
+                    UniversalSkill.APOKALYPTISCHER_KLICK -> bonus += 3.00
+                    UniversalSkill.UNIVERSAL_BONUS -> bonus += 0.10
+                    else -> {}
+                }
+                "auto_clicker_speed" -> when (skill) {
+                    UniversalSkill.AUTO_CLICKER_SPEED_I -> bonus += 0.50  // +0.5 clicks/sec
+                    UniversalSkill.AUTO_CLICKER_II -> bonus += 1.00  // +1 click/sec
+                    UniversalSkill.AUTO_CLICK_GESCHWINDIGKEIT -> bonus += 1.50  // +1.5 clicks/sec
+                    UniversalSkill.AUTO_CLICKER_III -> bonus += 1.50  // +1.5 clicks/sec
+                    UniversalSkill.AUTO_CLICKER_IV -> bonus += 2.00  // +2 clicks/sec
+                    UniversalSkill.AUTO_CLICKER_V -> bonus += 3.00  // +3 clicks/sec
+                    else -> {}
+                }
+                "gold" -> when (skill) {
+                    UniversalSkill.GOLD_FINDER_I -> bonus += 0.10
+                    UniversalSkill.GOLD_BONUS_I -> bonus += 0.15
+                    UniversalSkill.GOLD_FINDER_II -> bonus += 0.20
+                    UniversalSkill.GOLD_BONUS_II -> bonus += 0.25
+                    UniversalSkill.GOLD_FINDER_III -> bonus += 0.30
+                    UniversalSkill.GOLD_BONUS_III -> bonus += 0.40
+                    UniversalSkill.GOLD_MEISTER -> bonus += 0.50
+                    UniversalSkill.GOLD_GOTT -> bonus += 0.75
+                    UniversalSkill.UNIVERSAL_BONUS -> bonus += 0.10
+                    else -> {}
+                }
+                "xp" -> when (skill) {
+                    UniversalSkill.KAMPF_ERFAHRUNG_I -> bonus += 0.10
+                    UniversalSkill.KAMPF_MEISTERSCHAFT_I -> bonus += 0.15
+                    UniversalSkill.KAMPF_MEISTERSCHAFT_II -> bonus += 0.25
+                    UniversalSkill.KAMPF_MEISTERSCHAFT_III -> bonus += 0.40
+                    UniversalSkill.KAMPF_GOTT -> bonus += 0.60
+                    UniversalSkill.UNIVERSAL_BONUS -> bonus += 0.10
+                    else -> {}
+                }
+                "damage" -> when (skill) {
+                    UniversalSkill.SCHADENS_BONUS_I -> bonus += 0.05
+                    UniversalSkill.SCHADENS_BONUS_II -> bonus += 0.10
+                    UniversalSkill.SCHADENS_BONUS_III -> bonus += 0.15
+                    UniversalSkill.SCHADENS_BONUS_IV -> bonus += 0.25
+                    UniversalSkill.SCHADENS_BONUS_V -> bonus += 0.40
+                    UniversalSkill.UNIVERSAL_BONUS -> bonus += 0.10
+                    else -> {}
+                }
+                "armor" -> when (skill) {
+                    UniversalSkill.VERTEIDIGUNG_I -> bonus += 0.05
+                    UniversalSkill.VERTEIDIGUNG_II -> bonus += 0.10
+                    UniversalSkill.VERTEIDIGUNG_III -> bonus += 0.15
+                    UniversalSkill.VERTEIDIGUNG_IV -> bonus += 0.25
+                    else -> {}
+                }
+                "hp_percent" -> when (skill) {
+                    UniversalSkill.ZAEHIGKEIT -> bonus += 0.05
+                    else -> {}
+                }
+                "healing" -> when (skill) {
+                    UniversalSkill.ERSTE_HILFE -> bonus += 0.10
+                    UniversalSkill.SCHNELLE_ERHOLUNG -> bonus += 0.50
+                    else -> {}
+                }
+                "drop_chance" -> when (skill) {
+                    UniversalSkill.LOOT_GLUECK_I -> bonus += 0.05
+                    UniversalSkill.LOOT_GLUECK_II -> bonus += 0.10
+                    UniversalSkill.LOOT_GLUECK_III -> bonus += 0.15
+                    UniversalSkill.LOOT_MAGNET -> bonus += 0.20
+                    else -> {}
+                }
+                "divine_essence" -> when (skill) {
+                    UniversalSkill.DE_FINDER_I -> bonus += 0.10
+                    UniversalSkill.DE_FINDER_II -> bonus += 0.20
+                    UniversalSkill.DE_FINDER_III -> bonus += 0.30
+                    UniversalSkill.DE_FINDER_IV -> bonus += 0.50
+                    UniversalSkill.UNIVERSAL_BONUS -> bonus += 0.10
+                    else -> {}
+                }
+                "prestige" -> when (skill) {
+                    UniversalSkill.PRESTIGE_BONUS_I -> bonus += 0.10
+                    UniversalSkill.PRESTIGE_BONUS_II -> bonus += 0.20
+                    UniversalSkill.PRESTIGE_MEISTER -> bonus += 0.30
+                    UniversalSkill.PRESTIGE_GOTT -> bonus += 0.50
+                    else -> {}
+                }
+                "idle_gains" -> when (skill) {
+                    UniversalSkill.IDLE_GAINS_I -> bonus += 0.10
+                    UniversalSkill.IDLE_GAINS_II -> bonus += 0.20
+                    UniversalSkill.IDLE_GAINS_III -> bonus += 0.30
+                    UniversalSkill.IDLE_GAINS_IV -> bonus += 0.50
+                    UniversalSkill.IDLE_MEISTER -> bonus += 0.75
+                    else -> {}
+                }
+            }
+        }
+
+        // Zeitdilatation active effects
+        if (zeitdilatationActive && System.currentTimeMillis() < zeitdilatationEndTime) {
+            when (category) {
+                "click_power" -> bonus *= 5.0  // 5x multiplier
+                "auto_clicker_speed" -> bonus *= 2.0  // 2x multiplier
+                "gold", "xp" -> bonus *= 2.0  // 2x multiplier
+                else -> {}
+            }
+        }
+
+        return bonus
+    }
+
+    // Get crit chance from skills
+    fun getCritChance(): Double {
+        var critChance = 0.0
+
+        if (unlockedSkills.contains(UniversalSkill.KRITISCHER_KLICK_I)) critChance += 0.05
+        if (unlockedSkills.contains(UniversalSkill.KRITISCHER_KLICK_II)) critChance += 0.10
+        if (unlockedSkills.contains(UniversalSkill.SUPER_CRIT)) critChance += 0.15
+        if (unlockedSkills.contains(UniversalSkill.MEGA_CRIT)) critChance += 0.20
+        if (unlockedSkills.contains(UniversalSkill.GOETTLICHER_CRIT)) critChance += 0.25
+
+        return critChance
+    }
+
+    // Get crit multiplier from skills
+    fun getCritMultiplier(): Double {
+        var critMult = 1.0
+
+        if (unlockedSkills.contains(UniversalSkill.KRITISCHER_KLICK_I)) critMult = 2.0
+        if (unlockedSkills.contains(UniversalSkill.KRITISCHER_KLICK_II)) critMult = 2.5
+        if (unlockedSkills.contains(UniversalSkill.SUPER_CRIT)) critMult = 3.0
+        if (unlockedSkills.contains(UniversalSkill.MEGA_CRIT)) critMult = 4.0
+        if (unlockedSkills.contains(UniversalSkill.GOETTLICHER_CRIT)) critMult = 5.0
+
+        return critMult
+    }
+
+    // Check if player has Zeitdilatation unlocked and ready
+    fun canUseZeitdilatation(): Boolean {
+        if (!unlockedSkills.contains(UniversalSkill.ZEITDILATATION)) return false
+        if (zeitdilatationActive) return false
+
+        val cooldown = 10 * 60 * 1000L  // 10 minutes
+        val timeSinceLastUse = System.currentTimeMillis() - zeitdilatationLastUsed
+        return timeSinceLastUse >= cooldown
+    }
+
+    // Activate Zeitdilatation
+    fun activateZeitdilatation(): Boolean {
+        if (!canUseZeitdilatation()) return false
+
+        zeitdilatationActive = true
+        zeitdilatationEndTime = System.currentTimeMillis() + (60 * 1000L)  // 60 seconds
+        zeitdilatationLastUsed = System.currentTimeMillis()
+
+        return true
+    }
+
+    // Check and clear expired Zeitdilatation
+    fun updateZeitdilatation() {
+        if (zeitdilatationActive && System.currentTimeMillis() >= zeitdilatationEndTime) {
+            zeitdilatationActive = false
+        }
+    }
+
+    // Get remaining Zeitdilatation cooldown in seconds
+    fun getZeitdilatationCooldown(): Long {
+        if (!unlockedSkills.contains(UniversalSkill.ZEITDILATATION)) return -1
+
+        val cooldown = 10 * 60 * 1000L
+        val timeSinceLastUse = System.currentTimeMillis() - zeitdilatationLastUsed
+        val remaining = cooldown - timeSinceLastUse
+
+        return if (remaining > 0) remaining / 1000 else 0
+    }
+
+    // Respec skill tree (costs Divine Essence)
+    fun getRespecCost(): Int {
+        return 50  // 50 DE to respec
+    }
+
+    fun canRespec(): Boolean {
+        return unlockedSkills.isNotEmpty() && divineEssence >= getRespecCost()
+    }
+
+    fun respecSkills(): Boolean {
+        if (!canRespec()) return false
+
+        // Remove all stat bonuses that were applied
+        for (skill in unlockedSkills) {
+            removeSkillEffects(skill)
+        }
+
+        // Refund all skill points
+        availableSkillPoints = totalSkillPointsEarned
+
+        // Clear unlocked skills
+        unlockedSkills.clear()
+
+        // Pay cost
+        divineEssence -= getRespecCost()
+        lastRespecTime = System.currentTimeMillis()
+
+        // Reset Zeitdilatation state
+        zeitdilatationActive = false
+        zeitdilatationEndTime = 0L
+
+        return true
+    }
+
+    // Remove stat effects when respeccing
+    private fun removeSkillEffects(skill: UniversalSkill) {
+        characterStats?.let { stats ->
+            when (skill) {
+                UniversalSkill.ROBUSTHEIT_I -> stats.maxHP -= 10
+                UniversalSkill.ROBUSTHEIT_II -> stats.maxHP -= 20
+                UniversalSkill.ROBUSTHEIT_III -> stats.maxHP -= 30
+                UniversalSkill.ROBUSTHEIT_IV -> stats.maxHP -= 50
+                UniversalSkill.ROBUSTHEIT_V -> stats.maxHP -= 75
+                UniversalSkill.RUESTUNGS_TRAINING_I -> stats.armorBonus -= 1
+                UniversalSkill.MANA_POOL_I -> stats.maxMana -= 10
+                UniversalSkill.MANA_POOL_II -> stats.maxMana -= 20
+                UniversalSkill.MANA_POOL_III -> stats.maxMana -= 30
+                UniversalSkill.MANA_POOL_IV -> stats.maxMana -= 50
+                UniversalSkill.SCHNELLE_REGENERATION -> { /* Removed dynamically */ }
+                else -> {}
+            }
+            // Ensure stats don't go negative
+            stats.maxHP = stats.maxHP.coerceAtLeast(1)
+            stats.maxMana = stats.maxMana.coerceAtLeast(0)
+            stats.armorBonus = stats.armorBonus.coerceAtLeast(0)
+        }
+    }
+
+    // Get unlocked skills (for UI)
+    fun getUnlockedSkills(): Set<UniversalSkill> = unlockedSkills.toSet()
+
+    // Get all available skills for current level
+    fun getAvailableSkills(): List<UniversalSkill> {
+        val characterLevel = characterStats?.level ?: 1
+        return UniversalSkill.values().filter {
+            it.isUnlockable(characterLevel, unlockedSkills)
+        }
     }
 
     fun canPrestige(): Boolean {
@@ -3032,6 +3361,9 @@ data class CharacterStats(
 
         level++
 
+        // Grant 1 Skill Point per level
+        GameState.grantSkillPoint()
+
         // Roll Hit Dice (oder nehme Durchschnitt) und addiere CON-Mod
         val hpGain = playerClass.hitDice.average() + getModifier(DndAttribute.CONSTITUTION)
         maxHP += hpGain.coerceAtLeast(1)
@@ -3547,5 +3879,172 @@ object MonsterTemplates {
         }
 
         return enemy
+    }
+}
+
+// ============================================================================
+// UNIVERSAL SKILL TREE SYSTEM
+// ============================================================================
+
+enum class SkillCategory {
+    INCREMENTAL,  // 70% - Idle/Clicker gameplay
+    COMBAT        // 30% - DND/Combat gameplay
+}
+
+enum class UniversalSkill(
+    val displayName: String,
+    val description: String,
+    val category: SkillCategory,
+    val tier: Int,  // 1-5 (every 20 levels)
+    val levelRequirement: Int,
+    val isChoice: Boolean = false,  // Is part of A/B choice
+    val choiceGroup: Int? = null,  // Which choice group (1-8)
+    val prerequisites: List<UniversalSkill> = emptyList()
+) {
+    // ========== TIER 1 (Level 1-20) - Grundlagen ==========
+    // Incremental (14)
+    STAERKERE_KLICKS("Stärkere Klicks", "Click Power +10%", SkillCategory.INCREMENTAL, 1, 1),
+    SCHNELLERE_FINGER("Schnellere Finger", "Click Rate +5%", SkillCategory.INCREMENTAL, 1, 2),
+    FLEISSIGE_HAENDE("Fleißige Hände", "Click Power +15%", SkillCategory.INCREMENTAL, 1, 3),
+    GOLD_FINDER_I("Gold-Finder I", "+10% Gold aus allen Quellen", SkillCategory.INCREMENTAL, 1, 4),
+    KRITISCHER_KLICK_I("Kritischer Klick I", "5% Crit Chance, 2x Damage", SkillCategory.INCREMENTAL, 1, 5, isChoice = true, choiceGroup = 1),
+    MEGA_KLICK_I("Mega-Klick I", "+25% Click Power", SkillCategory.INCREMENTAL, 1, 5, isChoice = true, choiceGroup = 1),
+    AUTO_CLICKER_SPEED_I("Auto-Clicker Speed I", "Auto-Clicker +0.5 clicks/sec", SkillCategory.INCREMENTAL, 1, 7),
+    IDLE_GAINS_I("Idle Gains I", "+10% Punkte während AFK", SkillCategory.INCREMENTAL, 1, 8),
+    OFFLINE_PROGRESS_I("Offline-Progress I", "25% der Idle-Rate offline", SkillCategory.INCREMENTAL, 1, 9),
+    LOOT_GLUECK_I("Loot-Glück I", "+5% Equipment Drop Chance", SkillCategory.INCREMENTAL, 1, 10),
+    GOLD_BONUS_I("Gold-Bonus I", "+15% Gold aus Kämpfen", SkillCategory.INCREMENTAL, 1, 11),
+    CLICK_MULTI_I("Click-Multiplikator I", "Click Power +20%", SkillCategory.INCREMENTAL, 1, 12),
+    DE_FINDER_I("DE-Finder I", "+10% Divine Essence", SkillCategory.INCREMENTAL, 1, 13),
+    FARBSTOFF_BONUS_I("Farbstoff-Bonus I", "+10% Farbpunkte", SkillCategory.INCREMENTAL, 1, 14),
+
+    // Combat (6)
+    ROBUSTHEIT_I("Robustheit I", "Max HP +10", SkillCategory.COMBAT, 1, 15),
+    ZAEHIGKEIT("Zähigkeit", "Max HP +5%", SkillCategory.COMBAT, 1, 16),
+    RUESTUNGS_TRAINING_I("Rüstungs-Training I", "Armor +1", SkillCategory.COMBAT, 1, 17),
+    KAMPF_ERFAHRUNG_I("Kampf-Erfahrung I", "+10% XP aus Kämpfen", SkillCategory.COMBAT, 1, 18),
+    ERSTE_HILFE("Erste Hilfe", "+10% Heilung erhalten", SkillCategory.COMBAT, 1, 19),
+    SCHADENS_BONUS_I("Schadens-Bonus I", "+5% Schaden", SkillCategory.COMBAT, 1, 20),
+
+    // ========== TIER 2 (Level 21-40) - Fortgeschritten ==========
+    // Incremental (14)
+    KRITISCHER_KLICK_II("Kritischer Klick II", "10% Crit, 2.5x Damage", SkillCategory.INCREMENTAL, 2, 21, isChoice = true, choiceGroup = 2),
+    MEGA_KLICK_II("Mega-Klick II", "+50% Click Power", SkillCategory.INCREMENTAL, 2, 21, isChoice = true, choiceGroup = 2),
+    AUTO_CLICKER_II("Auto-Clicker II", "+1 click/sec", SkillCategory.INCREMENTAL, 2, 23),
+    CLICK_MULTI_II("Click-Multiplikator II", "+30%", SkillCategory.INCREMENTAL, 2, 24),
+    GOLD_FINDER_II("Gold-Finder II", "+20% Gold", SkillCategory.INCREMENTAL, 2, 25),
+    FARB_EFFIZIENZ_I("Farb-Effizienz I", "Färbe-Kosten -10%", SkillCategory.INCREMENTAL, 2, 26),
+    LOOT_QUALITAET_I("Loot-Qualität I", "+10% höhere Rarity Chance", SkillCategory.INCREMENTAL, 2, 27),
+    IDLE_GAINS_II("Idle Gains II", "+20% AFK", SkillCategory.INCREMENTAL, 2, 28),
+    OFFLINE_PROGRESS_II("Offline-Progress II", "50% offline", SkillCategory.INCREMENTAL, 2, 29),
+    PRESTIGE_BONUS_I("Prestige-Bonus I", "+10% DE beim Prestige", SkillCategory.INCREMENTAL, 2, 30),
+    AUTO_CLICK_KRAFT("Auto-Click Kraft", "Auto-Clicker = 50% Click-Schaden", SkillCategory.INCREMENTAL, 2, 31, isChoice = true, choiceGroup = 3),
+    AUTO_CLICK_GESCHWINDIGKEIT("Auto-Click Geschwindigkeit", "+1.5 clicks/sec", SkillCategory.INCREMENTAL, 2, 31, isChoice = true, choiceGroup = 3),
+    GOLD_BONUS_II("Gold-Bonus II", "+25% Gold", SkillCategory.INCREMENTAL, 2, 33),
+    WUERFEL_GLUECK_I("Würfel-Glück I", "+5% höherer Würfel", SkillCategory.INCREMENTAL, 2, 34),
+
+    // Combat (6)
+    ROBUSTHEIT_II("Robustheit II", "Max HP +20", SkillCategory.COMBAT, 2, 35),
+    VERTEIDIGUNG_I("Verteidigung I", "Rüstung +5%", SkillCategory.COMBAT, 2, 36),
+    KAMPF_MEISTERSCHAFT_I("Kampf-Meisterschaft I", "+15% XP", SkillCategory.COMBAT, 2, 37),
+    SCHADENS_BONUS_II("Schadens-Bonus II", "+10% Schaden", SkillCategory.COMBAT, 2, 38),
+    MANA_POOL_I("Mana-Pool I", "Max Mana +10", SkillCategory.COMBAT, 2, 39),
+    SCHNELLE_REGENERATION("Schnelle Regeneration", "+1 Mana/Runde", SkillCategory.COMBAT, 2, 40),
+
+    // ========== TIER 3 (Level 41-60) - Experte ==========
+    // Incremental (14)
+    CLICK_MULTI_III("Click-Multiplikator III", "+50%", SkillCategory.INCREMENTAL, 3, 41),
+    AUTO_CLICKER_III("Auto-Clicker III", "+1.5 clicks/sec", SkillCategory.INCREMENTAL, 3, 42),
+    SUPER_CRIT("Super-Crit", "15% Crit, 3x Damage", SkillCategory.INCREMENTAL, 3, 43, isChoice = true, choiceGroup = 4),
+    ULTRA_KLICK("Ultra-Klick", "+100% Click Power", SkillCategory.INCREMENTAL, 3, 43, isChoice = true, choiceGroup = 4),
+    GOLD_FINDER_III("Gold-Finder III", "+30%", SkillCategory.INCREMENTAL, 3, 45),
+    LOOT_GLUECK_II("Loot-Glück II", "+10% Drop Chance", SkillCategory.INCREMENTAL, 3, 46),
+    IDLE_GAINS_III("Idle Gains III", "+30% AFK", SkillCategory.INCREMENTAL, 3, 47),
+    OFFLINE_PROGRESS_III("Offline-Progress III", "75% offline", SkillCategory.INCREMENTAL, 3, 48),
+    PRESTIGE_BONUS_II("Prestige-Bonus II", "+20% DE", SkillCategory.INCREMENTAL, 3, 49),
+    DE_FINDER_II("DE-Finder II", "+20% DE", SkillCategory.INCREMENTAL, 3, 50),
+    LOOT_QUALITAET_II("Loot-Qualität II", "+20% höhere Rarity", SkillCategory.INCREMENTAL, 3, 51),
+    FARB_EFFIZIENZ_II("Farb-Effizienz II", "-20% Kosten", SkillCategory.INCREMENTAL, 3, 52),
+    GOLD_BONUS_III("Gold-Bonus III", "+40%", SkillCategory.INCREMENTAL, 3, 53),
+    LOOTBOX_RABATT("Lootbox-Rabatt", "Lootbox -10% Kosten", SkillCategory.INCREMENTAL, 3, 54, isChoice = true, choiceGroup = 5),
+    FUSION_RABATT("Fusion-Rabatt", "Fusion -15% Kosten", SkillCategory.INCREMENTAL, 3, 54, isChoice = true, choiceGroup = 5),
+
+    // Combat (6)
+    ROBUSTHEIT_III("Robustheit III", "Max HP +30", SkillCategory.COMBAT, 3, 56),
+    VERTEIDIGUNG_II("Verteidigung II", "Rüstung +10%", SkillCategory.COMBAT, 3, 57),
+    KAMPF_MEISTERSCHAFT_II("Kampf-Meisterschaft II", "+25% XP", SkillCategory.COMBAT, 3, 58),
+    SCHADENS_BONUS_III("Schadens-Bonus III", "+15% Schaden", SkillCategory.COMBAT, 3, 59),
+    MANA_POOL_II("Mana-Pool II", "Max Mana +20", SkillCategory.COMBAT, 3, 60),
+
+    // ========== TIER 4 (Level 61-80) - Meister ==========
+    // Incremental (14)
+    CLICK_MULTI_IV("Click-Multiplikator IV", "+75%", SkillCategory.INCREMENTAL, 4, 61),
+    AUTO_CLICKER_IV("Auto-Clicker IV", "+2 clicks/sec", SkillCategory.INCREMENTAL, 4, 62),
+    MEGA_CRIT("Mega-Crit", "20% Crit, 4x Damage", SkillCategory.INCREMENTAL, 4, 63, isChoice = true, choiceGroup = 6),
+    TITANISCHER_KLICK("Titanischer Klick", "+200% Click Power", SkillCategory.INCREMENTAL, 4, 63, isChoice = true, choiceGroup = 6),
+    GOLD_MEISTER("Gold-Meister", "+50% Gold", SkillCategory.INCREMENTAL, 4, 65),
+    LOOT_GLUECK_III("Loot-Glück III", "+15% Drop Chance", SkillCategory.INCREMENTAL, 4, 66),
+    IDLE_GAINS_IV("Idle Gains IV", "+50% AFK", SkillCategory.INCREMENTAL, 4, 67),
+    OFFLINE_PROGRESS_IV("Offline-Progress IV", "100% offline (FULL!)", SkillCategory.INCREMENTAL, 4, 68),
+    PRESTIGE_MEISTER("Prestige-Meister", "+30% DE", SkillCategory.INCREMENTAL, 4, 69),
+    DE_FINDER_III("DE-Finder III", "+30% DE", SkillCategory.INCREMENTAL, 4, 70),
+    LOOT_QUALITAET_III("Loot-Qualität III", "+30% höhere Rarity", SkillCategory.INCREMENTAL, 4, 71),
+    WUERFEL_GLUECK_II("Würfel-Glück II", "+10% höherer Würfel", SkillCategory.INCREMENTAL, 4, 72),
+    FARB_MEISTERSCHAFT("Farb-Meisterschaft", "-30% Kosten", SkillCategory.INCREMENTAL, 4, 73),
+    UPGRADE_RABATT("Upgrade-Rabatt", "Equipment Upgrades -10%", SkillCategory.INCREMENTAL, 4, 74),
+
+    // Combat (6)
+    ROBUSTHEIT_IV("Robustheit IV", "Max HP +50", SkillCategory.COMBAT, 4, 75),
+    VERTEIDIGUNG_III("Verteidigung III", "Rüstung +15%", SkillCategory.COMBAT, 4, 76),
+    KAMPF_MEISTERSCHAFT_III("Kampf-Meisterschaft III", "+40% XP", SkillCategory.COMBAT, 4, 77),
+    SCHADENS_BONUS_IV("Schadens-Bonus IV", "+25% Schaden", SkillCategory.COMBAT, 4, 78),
+    MANA_POOL_III("Mana-Pool III", "Max Mana +30", SkillCategory.COMBAT, 4, 79),
+    SCHNELLE_ERHOLUNG("Schnelle Erholung", "+50% Heilung", SkillCategory.COMBAT, 4, 80),
+
+    // ========== TIER 5 (Level 81-100) - Legende ==========
+    // Incremental (14)
+    CLICK_MULTI_V("Click-Multiplikator V", "+100%", SkillCategory.INCREMENTAL, 5, 81),
+    AUTO_CLICKER_V("Auto-Clicker V", "+3 clicks/sec", SkillCategory.INCREMENTAL, 5, 82),
+    GOETTLICHER_CRIT("Göttlicher Crit", "25% Crit, 5x Damage", SkillCategory.INCREMENTAL, 5, 83, isChoice = true, choiceGroup = 7),
+    APOKALYPTISCHER_KLICK("Apokalyptischer Klick", "+300% Click Power", SkillCategory.INCREMENTAL, 5, 83, isChoice = true, choiceGroup = 7),
+    GOLD_GOTT("Gold-Gott", "+75% Gold", SkillCategory.INCREMENTAL, 5, 85),
+    LOOT_MAGNET("Loot-Magnet", "+20% Drop Chance", SkillCategory.INCREMENTAL, 5, 86),
+    IDLE_MEISTER("Idle-Meister", "+75% AFK", SkillCategory.INCREMENTAL, 5, 87),
+    PRESTIGE_GOTT("Prestige-Gott", "+50% DE beim Prestige", SkillCategory.INCREMENTAL, 5, 88),
+    DE_FINDER_IV("DE-Finder IV", "+50% DE", SkillCategory.INCREMENTAL, 5, 89),
+    LOOT_QUALITAET_IV("Loot-Qualität IV", "+50% höhere Rarity", SkillCategory.INCREMENTAL, 5, 90),
+    WUERFEL_MEISTER("Würfel-Meister", "+15% höherer Würfel", SkillCategory.INCREMENTAL, 5, 91),
+    UPGRADE_MEISTER("Upgrade-Meister", "-20% Upgrade-Kosten", SkillCategory.INCREMENTAL, 5, 92),
+    FARB_GOTT("Farb-Gott", "-50% Färbe-Kosten", SkillCategory.INCREMENTAL, 5, 93),
+    UNIVERSAL_BONUS("Universal-Bonus", "+10% auf ALLES", SkillCategory.INCREMENTAL, 5, 94),
+
+    // Combat (5)
+    ROBUSTHEIT_V("Robustheit V", "Max HP +75", SkillCategory.COMBAT, 5, 95),
+    VERTEIDIGUNG_IV("Verteidigung IV", "Rüstung +25%", SkillCategory.COMBAT, 5, 96),
+    KAMPF_GOTT("Kampf-Gott", "+60% XP", SkillCategory.COMBAT, 5, 97),
+    SCHADENS_BONUS_V("Schadens-Bonus V", "+40% Schaden", SkillCategory.COMBAT, 5, 98),
+    MANA_POOL_IV("Mana-Pool IV", "Max Mana +50", SkillCategory.COMBAT, 5, 99),
+
+    // ========== LEVEL 100 - ACTIVE ABILITY ==========
+    ZEITDILATATION("⚡ Zeitdilatation", "60s: 5x Click, 2x Auto, 2x Gold/XP (CD: 10 Min)", SkillCategory.INCREMENTAL, 5, 100);
+
+    fun isUnlockable(characterLevel: Int, unlockedSkills: Set<UniversalSkill>): Boolean {
+        // Check level requirement
+        if (characterLevel < levelRequirement) return false
+
+        // Check prerequisites
+        if (prerequisites.isNotEmpty() && !unlockedSkills.containsAll(prerequisites)) return false
+
+        // Check if part of choice group and already chose the other option
+        if (isChoice && choiceGroup != null) {
+            val otherChoice = values().find {
+                it.choiceGroup == choiceGroup && it != this
+            }
+            if (otherChoice != null && unlockedSkills.contains(otherChoice)) {
+                return false  // Already chose the other option
+            }
+        }
+
+        return true
     }
 }
