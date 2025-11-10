@@ -132,17 +132,53 @@ class PrestigeActivity : Activity() {
             0, 1f
         ))
 
-        // Prestige button
+        // Prestige buttons container (horizontal layout)
+        val prestigeButtonsLayout = LinearLayout(this)
+        prestigeButtonsLayout.orientation = LinearLayout.HORIZONTAL
+        prestigeButtonsLayout.gravity = Gravity.CENTER
+
+        // Normal prestige button
         prestigeButton = Button(this)
-        prestigeButton.textSize = 20f
-        prestigeButton.setPadding(20, 20, 20, 20)
+        prestigeButton.textSize = 18f
+        prestigeButton.setPadding(15, 20, 15, 20)
         updatePrestigeButton()
         prestigeButton.setOnClickListener {
             if (GameState.performPrestige()) {
                 updateAll()
             }
         }
-        mainLayout.addView(prestigeButton)
+        val prestigeParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        prestigeParams.setMargins(0, 0, 10, 0)
+        prestigeButtonsLayout.addView(prestigeButton, prestigeParams)
+
+        // Prestige with ad boost button
+        val adPrestigeButton = Button(this)
+        adPrestigeButton.text = "🎬 2x Prestige"
+        adPrestigeButton.textSize = 16f
+        adPrestigeButton.setPadding(10, 20, 10, 20)
+        adPrestigeButton.setBackgroundColor(Color.rgb(200, 50, 50))
+        adPrestigeButton.setTextColor(Color.WHITE)
+        adPrestigeButton.setOnClickListener {
+            // Watch ad, then activate boost
+            AdManager.showRewardedAd(
+                activity = this,
+                onRewardEarned = {
+                    GameState.activatePrestigeBoost()
+                    // Visual feedback
+                    adPrestigeButton.text = "✅ BOOSTED!"
+                    adPrestigeButton.setBackgroundColor(Color.rgb(50, 200, 50))
+                    adPrestigeButton.isEnabled = false
+                },
+                onAdFailed = { error ->
+                    // Show error (optional)
+                }
+            )
+        }
+        val adPrestigeParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        adPrestigeParams.setMargins(10, 0, 0, 0)
+        prestigeButtonsLayout.addView(adPrestigeButton, adPrestigeParams)
+
+        mainLayout.addView(prestigeButtonsLayout)
 
         // Upgrades button
         val upgradeButton = Button(this)

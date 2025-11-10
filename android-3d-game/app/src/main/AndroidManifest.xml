@@ -58,6 +58,11 @@
             android:exported="false"
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize" />
+        <activity
+            android:name=".BoostActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
     </application>
 
 </manifest>

@@ -31,6 +31,7 @@ class MainActivity : Activity() {
     private lateinit var extraDiceButton: Button
     private lateinit var tavernButton: Button
     private lateinit var achievementButton: Button
+    private lateinit var boostButton: Button
 
     private val buffCheckHandler = Handler(Looper.getMainLooper())
     private val buffCheckRunnable = object : Runnable {
@@ -272,6 +273,24 @@ class MainActivity : Activity() {
             startActivity(intent)
         }
         buttonContainer.addView(achievementButton)
+
+        // Boost Station button
+        boostButton = Button(this)
+        boostButton.text = "⚡"
+        boostButton.textSize = 20f
+        boostButton.setBackgroundColor(Color.rgb(255, 100, 0))
+        boostButton.setTextColor(Color.WHITE)
+        val boostParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        boostParams.setMargins(5, 0, 5, 0)
+        boostButton.layoutParams = boostParams
+        boostButton.setOnClickListener {
+            val intent = Intent(this, BoostActivity::class.java)
+            startActivity(intent)
+        }
+        buttonContainer.addView(boostButton)
 
         // Tavern "?" button (locked until paid, visible after D20)
         tavernButton = Button(this)

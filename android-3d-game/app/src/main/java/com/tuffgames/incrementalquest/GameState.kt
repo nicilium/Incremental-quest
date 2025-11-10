@@ -130,6 +130,12 @@ object GameState {
 
     private val unlockedAchievements = mutableSetOf<AchievementType>()
 
+    // ========== Ad-Based Boost System Tracking ==========
+    private val activeBoosts = mutableMapOf<BoostType, ActiveBoost>()
+    private val boostCooldowns = mutableMapOf<BoostType, BoostCooldown>()
+    var prestigeBoostActive = false  // For next prestige: 2x rewards
+        private set
+
     // ========== NEW: Click Combo System ==========
     private var currentCombo = 0
     private var lastClickTime = 0L
@@ -290,11 +296,15 @@ object GameState {
         // Combo multiplier
         val comboMulti = getComboMultiplier()
 
+        // Ad Boost: Click multiplier
+        val clickBoostMulti = getBoostMultiplier(BoostType.CLICK_2X)
+
         // Total points with all multipliers applied
         var totalPoints = (basePoints + upgradeBonus).toDouble() *
                          permanentMulti *
                          (1.0 + achievementBonus + synergyBonus) *
-                         comboMulti
+                         comboMulti *
+                         clickBoostMulti
 
         // Extra Dice: Apply flat score bonus (consumed)
         if (flatScoreBonusNextClick > 0) {
@@ -482,12 +492,115 @@ object GameState {
         return AchievementType.values().filter { !unlockedAchievements.contains(it) }
     }
 
+    // ========== Ad-Based Boost Management ==========
+
+    /**
+     * Activate a boost after watching an ad
+     * @return true if boost was activated, false if on cooldown
+     */
+    fun activateBoost(type: BoostType): Boolean {
+        // Check cooldown
+        val cooldown = boostCooldowns[type]
+        if (cooldown != null && cooldown.isOnCooldown()) {
+            return false
+        }
+
+        // Calculate end time
+        val now = System.currentTimeMillis()
+        val durationMillis = type.durationMinutes * 60 * 1000L
+        val endTime = now + durationMillis
+
+        // Activate boost
+        activeBoosts[type] = ActiveBoost(type, now, endTime)
+        boostCooldowns[type] = BoostCooldown(type, now)
+
+        return true
+    }
+
+    /**
+     * Check if a boost is currently active
+     */
+    fun isBoostActive(type: BoostType): Boolean {
+        cleanupExpiredBoosts()
+        val boost = activeBoosts[type]
+        return boost != null && boost.isActive()
+    }
+
+    /**
+     * Get active boost (if any)
+     */
+    fun getActiveBoost(type: BoostType): ActiveBoost? {
+        cleanupExpiredBoosts()
+        return activeBoosts[type]
+    }
+
+    /**
+     * Check if boost is on cooldown
+     */
+    fun isBoostOnCooldown(type: BoostType): Boolean {
+        val cooldown = boostCooldowns[type] ?: return false
+        return cooldown.isOnCooldown()
+    }
+
+    /**
+     * Get cooldown info for a boost
+     */
+    fun getBoostCooldown(type: BoostType): BoostCooldown? {
+        return boostCooldowns[type]
+    }
+
+    /**
+     * Get all active boosts
+     */
+    fun getAllActiveBoosts(): List<ActiveBoost> {
+        cleanupExpiredBoosts()
+        return activeBoosts.values.toList()
+    }
+
+    /**
+     * Remove expired boosts
+     */
+    private fun cleanupExpiredBoosts() {
+        val expired = activeBoosts.filter { !it.value.isActive() }.keys
+        expired.forEach { activeBoosts.remove(it) }
+    }
+
+    /**
+     * Get multiplier for a specific boost type
+     * @return 1.0 if not active, otherwise the multiplier (e.g., 2.0 for 2x)
+     */
+    fun getBoostMultiplier(type: BoostType): Double {
+        return if (isBoostActive(type)) type.getMultiplier() else 1.0
+    }
+
+    /**
+     * Get combo window bonus from boosts (in milliseconds)
+     */
+    fun getComboWindowBonus(): Long {
+        return if (isBoostActive(BoostType.COMBO_EXTENDED)) 1000L else 0L
+    }
+
+    /**
+     * Activate prestige boost (2x DE and Gold for next prestige)
+     */
+    fun activatePrestigeBoost() {
+        prestigeBoostActive = true
+    }
+
+    /**
+     * Check if prestige boost is ready
+     */
+    fun isPrestigeBoostActive(): Boolean {
+        return prestigeBoostActive
+    }
+
     // ========== NEW: Click Combo System ==========
 
     private fun updateCombo() {
         val currentTime = System.currentTimeMillis()
+        val effectiveComboWindow = comboWindow + getComboWindowBonus()  // Apply boost
 
-        if (currentTime - lastClickTime < comboWindow) {
+        if (currentTime - lastClickTime < effectiveComboWindow) {
             // Within combo window, increase combo
             currentCombo++
         } else {
@@ -597,6 +710,10 @@ object GameState {
         // Apply achievement bonus to passive income
         val achievementBonus = getAchievementPassiveBonus()
         total *= (1.0 + achievementBonus)
+
+        // Apply ad boost to passive income
+        val passiveBoostMulti = getBoostMultiplier(BoostType.PASSIVE_2X)
+        total *= passiveBoostMulti
 
         return total
     }
@@ -1414,8 +1531,10 @@ object GameState {
             // Apply XP
             giveExperience(result.xpGained)
 
-            // Apply Gold
-            gold += result.goldGained
+            // Apply Gold (with ad boost)
+            val goldBoostMulti = getBoostMultiplier(BoostType.GOLD_2X)
+            val finalGold = (result.goldGained * goldBoostMulti).toInt()
+            gold += finalGold
 
             // Apply Divine Essence
             divineEssence += result.essenceGained
@@ -1788,11 +1907,19 @@ object GameState {
         }
 
         // Calculate Gold reward (generous!)
-        val goldReward = (points / 100).toInt()
+        var goldReward = (points / 100).toInt()
+
+        // Apply Prestige Boost (from ad) - 2x rewards!
+        var boostedDEReward = finalDEReward
+        if (prestigeBoostActive) {
+            boostedDEReward *= 2
+            goldReward *= 2
+            prestigeBoostActive = false  // Consume boost
+        }
 
         // Apply rewards
-        divineEssence += finalDEReward
-        totalDivineEssenceEarned += finalDEReward
+        divineEssence += boostedDEReward
+        totalDivineEssenceEarned += boostedDEReward
         prestigesClaimed++
         gold += goldReward
 
@@ -2004,6 +2131,24 @@ object GameState {
 
         // NEW: Synergy System
         editor.putBoolean("synergiesEnabled", synergiesEnabled)
+
+        // NEW: Ad-Based Boost System
+        editor.putBoolean("prestigeBoostActive", prestigeBoostActive)
+
+        // Save active boosts
+        editor.putInt("activeBoostsCount", activeBoosts.size)
+        activeBoosts.values.forEachIndexed { index, boost ->
+            editor.putString("activeBoost_${index}_type", boost.type.name)
+            editor.putLong("activeBoost_${index}_startTime", boost.startTime)
+            editor.putLong("activeBoost_${index}_endTime", boost.endTime)
+        }
+
+        // Save boost cooldowns
+        editor.putInt("boostCooldownsCount", boostCooldowns.size)
+        boostCooldowns.values.forEachIndexed { index, cooldown ->
+            editor.putString("boostCooldown_${index}_type", cooldown.type.name)
+            editor.putLong("boostCooldown_${index}_lastUsed", cooldown.lastUsedTime)
+        }
 
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
     }
@@ -2326,6 +2471,47 @@ object GameState {
 
         // NEW: Synergy System
         synergiesEnabled = prefs.getBoolean("synergiesEnabled", false)
+
+        // NEW: Ad-Based Boost System
+        prestigeBoostActive = prefs.getBoolean("prestigeBoostActive", false)
+
+        // Load active boosts
+        activeBoosts.clear()
+        val activeBoostsCount = prefs.getInt("activeBoostsCount", 0)
+        for (i in 0 until activeBoostsCount) {
+            val typeName = prefs.getString("activeBoost_${i}_type", null)
+            val startTime = prefs.getLong("activeBoost_${i}_startTime", 0L)
+            val endTime = prefs.getLong("activeBoost_${i}_endTime", 0L)
+
+            if (typeName != null) {
+                try {
+                    val type = BoostType.valueOf(typeName)
+                    val boost = ActiveBoost(type, startTime, endTime)
+                    if (boost.isActive()) {  // Only restore if still active
+                        activeBoosts[type] = boost
+                    }
+                } catch (e: IllegalArgumentException) {
+                    // Ignore invalid boost types
+                }
+            }
+        }
+
+        // Load boost cooldowns
+        boostCooldowns.clear()
+        val boostCooldownsCount = prefs.getInt("boostCooldownsCount", 0)
+        for (i in 0 until boostCooldownsCount) {
+            val typeName = prefs.getString("boostCooldown_${i}_type", null)
+            val lastUsedTime = prefs.getLong("boostCooldown_${i}_lastUsed", 0L)
+
+            if (typeName != null) {
+                try {
+                    val type = BoostType.valueOf(typeName)
+                    boostCooldowns[type] = BoostCooldown(type, lastUsedTime)
+                } catch (e: IllegalArgumentException) {
+                    // Ignore invalid boost types
+                }
+            }
+        }
 
         // Reset passive points timer to prevent huge point gains on first load
         lastPassivePointsUpdate = System.currentTimeMillis()
@@ -3666,6 +3852,100 @@ object MonsterTemplates {
         }
 
         return enemy
+    }
+}
+
+// ========== Ad-Based Boost System ==========
+
+/**
+ * Boost types available through watching ads
+ */
+enum class BoostType(
+    val displayName: String,
+    val description: String,
+    val emoji: String,
+    val durationMinutes: Int,
+    val cooldownMinutes: Int
+) {
+    GOLD_2X(
+        displayName = "2x Gold",
+        description = "Double all Gold earned",
+        emoji = "🪙",
+        durationMinutes = 30,
+        cooldownMinutes = 240  // 4 hours
+    ),
+    CLICK_2X(
+        displayName = "2x Click Power",
+        description = "Double your click value",
+        emoji = "🎯",
+        durationMinutes = 20,
+        cooldownMinutes = 240  // 4 hours
+    ),
+    PASSIVE_2X(
+        displayName = "2x Passive Income",
+        description = "Double passive income from auto-clicker",
+        emoji = "💤",
+        durationMinutes = 60,
+        cooldownMinutes = 240  // 4 hours
+    ),
+    COMBO_EXTENDED(
+        displayName = "Extended Combo Window",
+        description = "Combo window +1 second (easier combos!)",
+        emoji = "🔥",
+        durationMinutes = 15,
+        cooldownMinutes = 180  // 3 hours
+    );
+
+    fun getMultiplier(): Double {
+        return when (this) {
+            GOLD_2X, CLICK_2X, PASSIVE_2X -> 2.0
+            COMBO_EXTENDED -> 1.0  // Not a multiplier, changes combo window
+        }
+    }
+}
+
+/**
+ * Represents an active boost with expiration time
+ */
+data class ActiveBoost(
+    val type: BoostType,
+    val startTime: Long,      // System.currentTimeMillis() when activated
+    val endTime: Long         // When boost expires
+) {
+    fun isActive(): Boolean {
+        return System.currentTimeMillis() < endTime
+    }
+
+    fun getRemainingSeconds(): Int {
+        val remaining = (endTime - System.currentTimeMillis()) / 1000
+        return remaining.toInt().coerceAtLeast(0)
+    }
+
+    fun getRemainingMinutes(): Int {
+        return (getRemainingSeconds() / 60).coerceAtLeast(0)
+    }
+}
+
+/**
+ * Tracks when a boost was last used (for cooldown)
+ */
+data class BoostCooldown(
+    val type: BoostType,
+    val lastUsedTime: Long    // System.currentTimeMillis() when last activated
+) {
+    fun isOnCooldown(): Boolean {
+        val cooldownMillis = type.cooldownMinutes * 60 * 1000L
+        return System.currentTimeMillis() < (lastUsedTime + cooldownMillis)
+    }
+
+    fun getRemainingCooldownSeconds(): Int {
+        val cooldownMillis = type.cooldownMinutes * 60 * 1000L
+        val remaining = ((lastUsedTime + cooldownMillis) - System.currentTimeMillis()) / 1000
+        return remaining.toInt().coerceAtLeast(0)
+    }
+
+    fun getRemainingCooldownMinutes(): Int {
+        return (getRemainingCooldownSeconds() / 60).coerceAtLeast(0)
     }
 }
 
