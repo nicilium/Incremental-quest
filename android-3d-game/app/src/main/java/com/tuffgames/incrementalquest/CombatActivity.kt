@@ -20,6 +20,7 @@ class CombatActivity : Activity() {
     private lateinit var enemyContainer: LinearLayout
     private lateinit var playerHPBar: TextView
     private lateinit var playerManaBar: TextView
+    private lateinit var statusEffectsView: TextView
     private lateinit var combatLogView: TextView
     private lateinit var skillButtonsContainer: LinearLayout
     private lateinit var basicAttackButton: Button
@@ -163,8 +164,17 @@ Viel Erfolg! 🗡️
         playerManaBar.textSize = 12f
         playerManaBar.setTextColor(Color.CYAN)
         playerManaBar.typeface = Typeface.MONOSPACE
-        playerManaBar.setPadding(10, 5, 10, 15)
+        playerManaBar.setPadding(10, 5, 10, 5)
         contentLayout.addView(playerManaBar)
+
+        // Status Effects Display
+        statusEffectsView = TextView(this)
+        statusEffectsView.textSize = 10f
+        statusEffectsView.setTextColor(Color.rgb(255, 215, 100))
+        statusEffectsView.typeface = Typeface.MONOSPACE
+        statusEffectsView.setPadding(10, 5, 10, 15)
+        statusEffectsView.setBackgroundColor(Color.rgb(30, 25, 20))
+        contentLayout.addView(statusEffectsView)
 
         // Turn Indicator
         turnIndicator = TextView(this)
@@ -326,6 +336,9 @@ Viel Erfolg! 🗡️
         // Update player stats
         updatePlayerStats(combat)
 
+        // Update status effects
+        updateStatusEffects(combat)
+
         // Update turn indicator
         updateTurnIndicator(combat)
 
@@ -389,6 +402,57 @@ Viel Erfolg! 🗡️
         playerManaBar.text = "💙 Mana: ${stats.currentMana}/${stats.maxMana} $manaBar"
     }
 
+    private fun updateStatusEffects(combat: CombatState) {
+        val player = combat.playerParty.firstOrNull() ?: return
+        val stats = player.stats
+        val loadout = player.loadout
+        val effects = mutableListOf<String>()
+
+        // Active Cooldowns
+        val activeCooldowns = combat.abilityCooldowns.filter { it.value > 0 }
+        if (activeCooldowns.isNotEmpty()) {
+            effects.add("⏳ COOLDOWNS:")
+            activeCooldowns.forEach { (ability, rounds) ->
+                effects.add("  ${ability.displayName}: ${rounds}R")
+            }
+        }
+
+        // Active Passive Abilities
+        val passives = PaladinPassive.values().filter { it.isUnlockedAt(stats.level) }
+        if (passives.isNotEmpty()) {
+            effects.add("✨ PASSIVES:")
+            passives.forEach { passive ->
+                effects.add("  ${passive.displayName}: ${passive.getScaledDescription(stats.level)}")
+            }
+        }
+
+        // Zeitdilatation Status
+        if (GameState.zeitdilatationActive) {
+            effects.add("⚡ ZEITDILATATION AKTIV!")
+            effects.add("  5x Click | 2x Auto | 2x Gold/XP")
+        }
+
+        // Lay on Hands Pool
+        if (passives.any { it == PaladinPassive.LAY_ON_HANDS }) {
+            val remaining = loadout.layOnHandsPool - loadout.layOnHandsUsed
+            effects.add("🙏 Lay on Hands: ${remaining}/${loadout.layOnHandsPool} HP")
+        }
+
+        // Cleansing Touch Uses
+        if (passives.any { it == PaladinPassive.CLEANSING_TOUCH }) {
+            val maxUses = 3 + (stats.level / 10)
+            val remaining = maxUses - loadout.cleansingTouchUsed
+            effects.add("✋ Cleansing Touch: $remaining/$maxUses uses")
+        }
+
+        // Display all effects or "Keine aktiven Effekte"
+        statusEffectsView.text = if (effects.isEmpty()) {
+            "Keine aktiven Effekte"
+        } else {
+            effects.joinToString("\n")
+        }
+    }
+
     private fun updateTurnIndicator(combat: CombatState) {
         if (combat.combatEnded) {
             turnIndicator.text = "⚔️ KAMPF BEENDET"
@@ -437,7 +501,7 @@ Viel Erfolg! 🗡️
         // Get ability info
         val damage = ability.getDamage(player.stats.level)
         val healing = ability.getHealing(player.stats.level)
-        val cooldown = combat.abilityCooldowns.getOrDefault(ability, 0)
+        val cooldown = combat.abilityCooldowns[ability] ?: 0
 
         // Build button text
         val typeIcon = if (ability.type == AbilityType.COMBAT) "⚡" else "💙"

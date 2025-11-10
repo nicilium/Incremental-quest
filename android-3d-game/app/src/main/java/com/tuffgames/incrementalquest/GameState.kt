@@ -785,6 +785,9 @@ object GameState {
     // Get character stats (read-only)
     fun getCharacterStats(): CharacterStats? = characterStats
 
+    // Get character loadout (read-only)
+    fun getCharacterLoadout(): CharacterLoadout = characterLoadout
+
     // Give experience to character
     fun giveExperience(amount: Int) {
         val playerClass = selectedClass ?: return
@@ -3126,24 +3129,82 @@ enum class PaladinAbility(
     fun isUnlockedAt(characterLevel: Int): Boolean {
         return characterLevel >= levelRequirement
     }
+}
 
-    // Beschreibung mit Level-Werten
+// ============================================================================
+// PASSIVE ABILITIES SYSTEM
+// ============================================================================
+
+enum class PaladinPassive(
+    val displayName: String,
+    val description: String,
+    val levelRequirement: Int
+) {
+    // Level 2 - Divine Smite
+    DIVINE_SMITE(
+        "Divine Smite",
+        "Verbrauche Mana (15) um zusätzlichen Holy-Schaden zu machen (+2d8, scales mit Level)",
+        2
+    ),
+
+    // Level 6 - Lay on Hands
+    LAY_ON_HANDS(
+        "Lay on Hands",
+        "Heilungs-Pool (5 × Level HP). Regeneriert nach Rast. Kann als Bonus-Action genutzt werden",
+        6
+    ),
+
+    // Level 10 - Aura of Protection
+    AURA_OF_PROTECTION(
+        "Aura of Protection",
+        "Du und Verbündete im Umkreis erhalten +CHA-Mod zu Rettungswürfen",
+        10
+    ),
+
+    // Level 11 - Improved Divine Smite
+    IMPROVED_DIVINE_SMITE(
+        "Improved Divine Smite",
+        "Alle Nahkampf-Angriffe machen automatisch +1d8 Holy-Schaden",
+        11
+    ),
+
+    // Level 14 - Cleansing Touch
+    CLEANSING_TOUCH(
+        "Cleansing Touch",
+        "Kann CHA-Mod pro Tag negative Effekte von sich/Verbündeten entfernen (Bonus-Action)",
+        14
+    ),
+
+    // Level 18 - Aura Improvements
+    AURA_RADIUS_INCREASE(
+        "Aura Expansion",
+        "Aura-Reichweite erhöht sich auf 30ft (vorher 10ft)",
+        18
+    );
+
+    fun isUnlockedAt(characterLevel: Int): Boolean {
+        return characterLevel >= levelRequirement
+    }
+
+    fun getScaledValue(characterLevel: Int): Int {
+        return when(this) {
+            DIVINE_SMITE -> 2 + (characterLevel / 5)  // +1d8 alle 5 Level
+            LAY_ON_HANDS -> 5 * characterLevel  // 5 HP pro Level
+            AURA_OF_PROTECTION -> (characterLevel - 10) / 2  // Skaliert mit CHA
+            IMPROVED_DIVINE_SMITE -> 1 + (characterLevel / 10)  // +1d8 alle 10 Level
+            CLEANSING_TOUCH -> 3 + (characterLevel / 10)  // CHA-Mod + Bonus
+            AURA_RADIUS_INCREASE -> 30  // Fixed 30ft
+        }
+    }
+
     fun getScaledDescription(characterLevel: Int): String {
-        val dmg = if (baseDamage > 0) "${getDamage(characterLevel)} Schaden" else ""
-        val heal = if (baseHealing > 0 && baseHealing < 999) "${getHealing(characterLevel)} HP"
-                  else if (baseHealing >= 999) "Vollheilung" else ""
-        val dur = if (baseDuration > 0) "${getDuration(characterLevel)} Runden" else ""
-        val buff = if (this == SEGEN_DER_STAERKE) "+${getBuffPercentage(characterLevel)}% Angriff"
-                  else if (this == VERTEIDIGUNGSHALTUNG) "-${getBuffPercentage(characterLevel)}% Schaden"
-                  else if (this == VERGELTUNGSSCHLAG) "${getBuffPercentage(characterLevel)}% Konter"
-                  else ""
-
-        return buildString {
-            append(description)
-            if (dmg.isNotEmpty()) append(" [$dmg]")
-            if (heal.isNotEmpty()) append(" [$heal]")
-            if (dur.isNotEmpty()) append(" [$dur]")
-            if (buff.isNotEmpty()) append(" [$buff]")
+        return when(this) {
+            DIVINE_SMITE -> "$description [+${getScaledValue(characterLevel)}d8 Holy-Schaden]"
+            LAY_ON_HANDS -> "$description [${getScaledValue(characterLevel)} HP Pool]"
+            AURA_OF_PROTECTION -> "$description [+${getScaledValue(characterLevel)} zu Saves]"
+            IMPROVED_DIVINE_SMITE -> "$description [+${getScaledValue(characterLevel)}d8 pro Hit]"
+            CLEANSING_TOUCH -> "$description [${getScaledValue(characterLevel)}x pro Tag]"
+            AURA_RADIUS_INCREASE -> description
         }
     }
 }
@@ -3512,7 +3573,10 @@ data class CharacterStats(
 // Character Loadout (vor Abenteuer gewählt, skaliert mit Level)
 data class CharacterLoadout(
     val normalAbilities: MutableList<PaladinAbility?> = mutableListOf(null, null, null, null, null),  // Max 5
-    var ultimateAbility: PaladinAbility? = null
+    var ultimateAbility: PaladinAbility? = null,
+    var layOnHandsPool: Int = 0,  // Heilungs-Pool (Level × 5)
+    var layOnHandsUsed: Int = 0,  // Wie viel bereits genutzt
+    var cleansingTouchUsed: Int = 0  // Wie oft Cleansing Touch genutzt (resets täglich)
 ) {
     // Wie viele normale Slots sind verfügbar basierend auf Level?
     fun getMaxNormalSlots(characterLevel: Int): Int = when {
