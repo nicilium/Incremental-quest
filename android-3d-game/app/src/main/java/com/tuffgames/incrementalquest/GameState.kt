@@ -136,6 +136,10 @@ object GameState {
     var prestigeBoostActive = false  // For next prestige: 2x rewards
         private set
 
+    // ========== In-App Purchase System ==========
+    private val purchasedIAPs = mutableSetOf<IAPType>()
+    private var adsRemoved = false  // Special flag for Remove Ads
+
     // ========== NEW: Click Combo System ==========
     private var currentCombo = 0
     private var lastClickTime = 0L
@@ -299,12 +303,16 @@ object GameState {
         // Ad Boost: Click multiplier
         val clickBoostMulti = getBoostMultiplier(BoostType.CLICK_2X)
 
+        // IAP: VIP Multiplier (+50% to all points)
+        val vipMulti = getIAPVIPMultiplier()
+
         // Total points with all multipliers applied
         var totalPoints = (basePoints + upgradeBonus).toDouble() *
                          permanentMulti *
                          (1.0 + achievementBonus + synergyBonus) *
                          comboMulti *
-                         clickBoostMulti
+                         clickBoostMulti *
+                         vipMulti
 
         // Extra Dice: Apply flat score bonus (consumed)
         if (flatScoreBonusNextClick > 0) {
@@ -499,10 +507,12 @@ object GameState {
      * @return true if boost was activated, false if on cooldown
      */
     fun activateBoost(type: BoostType): Boolean {
-        // Check cooldown
-        val cooldown = boostCooldowns[type]
-        if (cooldown != null && cooldown.isOnCooldown()) {
-            return false
+        // Check cooldown (unless IAP removes cooldowns)
+        if (!areBoostCooldownsRemoved()) {
+            val cooldown = boostCooldowns[type]
+            if (cooldown != null && cooldown.isOnCooldown()) {
+                return false
+            }
         }
 
         // Calculate end time
@@ -570,6 +580,12 @@ object GameState {
      * @return 1.0 if not active, otherwise the multiplier (e.g., 2.0 for 2x)
      */
     fun getBoostMultiplier(type: BoostType): Double {
+        // Eternal Boost IAP: All boosts always active!
+        if (areEternalBoostsActive()) {
+            return type.getMultiplier()
+        }
+
+        // Normal: Check if boost is active
         return if (isBoostActive(type)) type.getMultiplier() else 1.0
     }
 
@@ -594,11 +610,156 @@ object GameState {
         return prestigeBoostActive
     }
 
+    // ========== In-App Purchase Management ==========
+
+    /**
+     * Purchase an IAP
+     * @return true if successfully purchased
+     */
+    fun purchaseIAP(iapType: IAPType): Boolean {
+        // Check if already purchased (except consumables)
+        if (purchasedIAPs.contains(iapType)) {
+            return false  // Already owned
+        }
+
+        // Apply IAP effects
+        when (iapType) {
+            IAPType.GOLDEN_START -> {
+                // Consumable: Give resources
+                gold += 50000
+                divineEssence += 10
+            }
+            IAPType.MEGA_RESOURCE_PACK -> {
+                // Consumable: Give resources
+                gold += 500000
+                divineEssence += 100
+            }
+            IAPType.ULTIMATE_BUNDLE -> {
+                // Bundle: Activate multiple IAPs
+                purchasedIAPs.add(IAPType.PASSIVE_2X)
+                purchasedIAPs.add(IAPType.NO_COOLDOWNS)
+                purchasedIAPs.add(IAPType.PRESTIGE_MASTER)
+                purchasedIAPs.add(IAPType.COMBO_EXPERT)
+            }
+            IAPType.REMOVE_ADS -> {
+                adsRemoved = true
+            }
+            else -> {
+                // Permanent upgrade: just track it
+            }
+        }
+
+        // Track purchase
+        purchasedIAPs.add(iapType)
+        return true
+    }
+
+    /**
+     * Check if an IAP is purchased
+     */
+    fun hasPurchased(iapType: IAPType): Boolean {
+        return purchasedIAPs.contains(iapType)
+    }
+
+    /**
+     * Check if ads are removed
+     */
+    fun areAdsRemoved(): Boolean {
+        return adsRemoved || hasPurchased(IAPType.REMOVE_ADS)
+    }
+
+    /**
+     * Get all purchased IAPs
+     */
+    fun getPurchasedIAPs(): List<IAPType> {
+        return purchasedIAPs.toList()
+    }
+
+    /**
+     * Get IAP multiplier for passive income
+     */
+    private fun getIAPPassiveMultiplier(): Double {
+        var multiplier = 1.0
+        if (hasPurchased(IAPType.PASSIVE_2X)) multiplier *= 2.0
+        return multiplier
+    }
+
+    /**
+     * Get IAP multiplier for prestige DE
+     */
+    private fun getIAPPrestigeDEMultiplier(): Double {
+        var multiplier = 1.0
+        if (hasPurchased(IAPType.PRESTIGE_MASTER)) multiplier += 0.5  // +50%
+        return multiplier
+    }
+
+    /**
+     * Get IAP multiplier for prestige Gold
+     */
+    private fun getIAPPrestigeGoldMultiplier(): Double {
+        var multiplier = 1.0
+        if (hasPurchased(IAPType.PRESTIGE_MASTER)) multiplier *= 2.0
+        return multiplier
+    }
+
+    /**
+     * Get IAP multiplier for VIP (all points)
+     */
+    private fun getIAPVIPMultiplier(): Double {
+        var multiplier = 1.0
+        if (hasPurchased(IAPType.VIP_MULTIPLIER)) multiplier += 0.5  // +50%
+        return multiplier
+    }
+
+    /**
+     * Get auto-clicker speed multiplier from IAP
+     */
+    private fun getIAPAutoClickerSpeedMultiplier(): Double {
+        var multiplier = 1.0
+        if (hasPurchased(IAPType.AUTO_CLICKER_PRO)) multiplier *= 3.0
+        return multiplier
+    }
+
+    /**
+     * Get auto-clicker cost reduction from IAP
+     */
+    private fun getIAPAutoClickerCostReduction(): Double {
+        return if (hasPurchased(IAPType.AUTO_CLICKER_PRO)) 0.5 else 1.0  // 50% off
+    }
+
+    /**
+     * Get combo window bonus from IAP (in milliseconds)
+     */
+    private fun getIAPComboWindowBonus(): Long {
+        return if (hasPurchased(IAPType.COMBO_EXPERT)) 500L else 0L  // +0.5 seconds
+    }
+
+    /**
+     * Get combo bonus multiplier from IAP
+     */
+    private fun getIAPComboBonusMultiplier(): Double {
+        return if (hasPurchased(IAPType.COMBO_EXPERT)) 1.5 else 1.0  // +50% stronger
+    }
+
+    /**
+     * Check if boost cooldowns are removed
+     */
+    fun areBoostCooldownsRemoved(): Boolean {
+        return hasPurchased(IAPType.NO_COOLDOWNS) || hasPurchased(IAPType.ETERNAL_BOOST)
+    }
+
+    /**
+     * Check if eternal boosts are active (all boosts always on)
+     */
+    fun areEternalBoostsActive(): Boolean {
+        return hasPurchased(IAPType.ETERNAL_BOOST)
+    }
+
     // ========== NEW: Click Combo System ==========
 
     private fun updateCombo() {
         val currentTime = System.currentTimeMillis()
-        val effectiveComboWindow = comboWindow + getComboWindowBonus()  // Apply boost
+        val effectiveComboWindow = comboWindow + getComboWindowBonus() + getIAPComboWindowBonus()  // Apply boosts + IAPs
 
         if (currentTime - lastClickTime < effectiveComboWindow) {
             // Within combo window, increase combo
@@ -621,7 +782,11 @@ object GameState {
         if (currentCombo <= 1) return 1.0
 
         // +4% per combo, max 200% bonus (3x total at 50 combo)
-        val bonus = (currentCombo * 0.04).coerceAtMost(2.0)
+        var bonus = (currentCombo * 0.04).coerceAtMost(2.0)
+
+        // Apply IAP bonus multiplier (+50% stronger with Combo Expert)
+        bonus *= getIAPComboBonusMultiplier()
+
         return 1.0 + bonus
     }
 
@@ -715,6 +880,11 @@ object GameState {
         val passiveBoostMulti = getBoostMultiplier(BoostType.PASSIVE_2X)
         total *= passiveBoostMulti
 
+        // Apply IAP multipliers
+        val iapPassiveMulti = getIAPPassiveMultiplier()  // 2x from Passive IAP
+        val vipMulti = getIAPVIPMultiplier()              // +50% from VIP
+        total *= iapPassiveMulti * vipMulti
+
         return total
     }
 
@@ -757,8 +927,9 @@ object GameState {
     // Auto Clicker Speed Upgrade (now uses Gold!)
     fun getAutoClickerSpeedCost(): Int {
         if (autoClickerSpeedLevel >= 100) return -1  // Max Level
-        // Cost: 100 × 1.5^level
-        return (100 * (1.5).pow(autoClickerSpeedLevel)).toInt()
+        // Cost: 100 × 1.5^level (with IAP discount)
+        val baseCost = (100 * (1.5).pow(autoClickerSpeedLevel)).toInt()
+        return (baseCost * getIAPAutoClickerCostReduction()).toInt()
     }
 
     fun canAffordAutoClickerSpeed(): Boolean {
@@ -1824,6 +1995,12 @@ object GameState {
             interval /= 2
         }
 
+        // IAP: Auto-Clicker Pro (3x speed = 1/3 interval)
+        val iapSpeedMulti = getIAPAutoClickerSpeedMultiplier()
+        if (iapSpeedMulti > 1.0) {
+            interval = (interval / iapSpeedMulti).toLong()
+        }
+
         return interval
     }
 
@@ -1916,6 +2093,12 @@ object GameState {
             goldReward *= 2
             prestigeBoostActive = false  // Consume boost
         }
+
+        // Apply IAP multipliers
+        val iapDEMulti = getIAPPrestigeDEMultiplier()      // +50% from Prestige Master
+        val iapGoldMulti = getIAPPrestigeGoldMultiplier()  // 2x from Prestige Master
+        boostedDEReward = (boostedDEReward * iapDEMulti).toInt()
+        goldReward = (goldReward * iapGoldMulti).toInt()
 
         // Apply rewards
         divineEssence += boostedDEReward
@@ -2149,6 +2332,10 @@ object GameState {
             editor.putString("boostCooldown_${index}_type", cooldown.type.name)
             editor.putLong("boostCooldown_${index}_lastUsed", cooldown.lastUsedTime)
         }
+
+        // NEW: In-App Purchase System
+        editor.putString("purchasedIAPs", purchasedIAPs.joinToString(",") { it.name })
+        editor.putBoolean("adsRemoved", adsRemoved)
 
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
     }
@@ -2512,6 +2699,20 @@ object GameState {
                 }
             }
         }
+
+        // NEW: In-App Purchase System
+        val iapsString = prefs.getString("purchasedIAPs", "")
+        purchasedIAPs.clear()
+        if (!iapsString.isNullOrEmpty()) {
+            iapsString.split(",").forEach { name ->
+                try {
+                    purchasedIAPs.add(IAPType.valueOf(name))
+                } catch (e: IllegalArgumentException) {
+                    // Ignore invalid IAP names
+                }
+            }
+        }
+        adsRemoved = prefs.getBoolean("adsRemoved", false)
 
         // Reset passive points timer to prevent huge point gains on first load
         lastPassivePointsUpdate = System.currentTimeMillis()
