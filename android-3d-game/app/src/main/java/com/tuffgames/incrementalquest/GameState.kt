@@ -3649,6 +3649,267 @@ enum class PaladinPassive(
     }
 }
 
+// ============================================================================
+// BARBAR ABILITIES
+// ============================================================================
+
+enum class BarbarAbility(
+    val displayName: String,
+    val description: String,
+    val type: AbilityType,
+    val category: AbilityCategory,
+    val levelRequirement: Int,
+    val cooldown: Int,
+    val manaCost: Int = 0,  // Barbar nutzt Rage statt Mana
+    val baseDamage: Int = 0,
+    val baseHealing: Int = 0,
+    val baseDuration: Int = 0
+) {
+    // ========== NORMAL SKILLS (28) ==========
+
+    // Level 1
+    WILDES_SCHLAGEN("Wildes Schlagen", "Wilder Nahkampfangriff mit erhöhtem Schaden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 1, 2, baseDamage = 25),
+
+    // Level 3
+    WUTSCHREI("Wutschrei", "Schrei der Wut - AOE Schaden + aktiviert Rage",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 3, 4, baseDamage = 20),
+
+    // Level 5
+    BRUTALER_HIEB("Brutaler Hieb", "Verheerender Schlag mit massivem Schaden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 5, 3, baseDamage = 40),
+
+    // Level 7
+    UNAUFHALTSAM("Unaufhaltsam", "Regeneriere HP über Zeit",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 7, 5, baseHealing = 15, baseDuration = 3),
+
+    // Level 9
+    ZORNESRAUSCH("Zornesrausch", "Erhöhe Schaden und erhalte Schadensresistenz",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 9, 5, baseDuration = 3),
+
+    // Level 12
+    BERSERKERWUT("Berserkerwut", "Schlage 2x zu in dieser Runde",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 12, 4, baseDamage = 30),
+
+    // Level 14
+    ERDERSCHUETTERUNG("Erderschütterung", "Schlage auf den Boden - AOE + Stun",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 14, 5, baseDamage = 35, baseDuration = 1),
+
+    // Level 16
+    TODESSTOSS("Todesstoß", "Execute-Angriff bei Gegnern unter 20% HP",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 16, 4, baseDamage = 50),
+
+    // Level 18
+    BLUTDURST("Blutdurst", "Lifesteal-Angriff - heile dich für 50% des Schadens",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 18, 3, baseDamage = 45),
+
+    // Level 21
+    KETTENANGRIFF("Kettenangriff", "Greife 3 Gegner gleichzeitig an",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 21, 5, baseDamage = 35),
+
+    // Level 24
+    TITANISCHE_STAERKE("Titanische Stärke", "+50% Schaden für 3 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 24, 6, baseDuration = 3),
+
+    // Level 27
+    UNVERWUNDBAR("Unverwundbar", "Erhalte massiven temporären HP-Schild",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 27, 5, baseHealing = 80),
+
+    // Level 33
+    FURCHTEINFLOESSEND("Furchteinflößend", "Schwäche alle Gegner (-30% Schaden)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 33, 6, baseDuration = 3),
+
+    // Level 36
+    KRIEGSSCHREI("Kriegsschrei", "Buff alle Verbündeten (+30% Schaden)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 36, 6, baseDuration = 3),
+
+    // Level 39
+    KNOCHENBRECHEND("Knochenbrechend", "Brich Rüstung des Gegners (-50% AC)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 39, 4, baseDamage = 60),
+
+    // Level 42
+    RASEREI("Raserei", "Erhöhe Angriffsgeschwindigkeit massiv",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 42, 5, baseDuration = 2),
+
+    // Level 45
+    VERWUESTUNG("Verwüstung", "Massive AOE-Zerstörung",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 45, 6, baseDamage = 70),
+
+    // Level 48
+    URZEITLICHER_ZORN("Urzeitlicher Zorn", "Kanalisiere den Zorn der Urahnen",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 48, 6, baseDamage = 80, baseDuration = 3),
+
+    // Level 52
+    WELTENZERSTOERER("Weltenzerstörer", "Verheerender Einzelschlag",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 52, 5, baseDamage = 100),
+
+    // Level 56
+    UNSTERBLICH("Unsterblich", "Kann nicht sterben für 2 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 56, 8, baseDuration = 2),
+
+    // Level 60
+    RACHEGEIST("Rachegeist", "Konter-Angriff - reflektiere 100% Schaden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 60, 4, baseDuration = 2),
+
+    // Level 65
+    TITANENBLUT("Titanenblut", "Erhöhe Max HP permanent um 20%",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 65, 8, baseHealing = 100),
+
+    // Level 70
+    BERSERKERINSTINKT("Berserkerinstinkt", "Auto-Ausweichen für 2 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 70, 6, baseDuration = 2),
+
+    // Level 75
+    VULKANFAUST("Vulkanfaust", "Feuer + Physical Hybrid-Schaden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 75, 5, baseDamage = 120),
+
+    // Level 80
+    CHAOSBRECHER("Chaosbrecher", "Ignoriere alle Verteidigungen",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 80, 5, baseDamage = 140),
+
+    // Level 85
+    WELTENRICHTER("Weltenrichter", "Richte alle Gegner - massiver AOE",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 85, 7, baseDamage = 130),
+
+    // Level 90
+    RAGNAROEK("Ragnarök", "Das Ende der Welt - AOE + Burn + Stun",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 90, 8, baseDamage = 150, baseDuration = 2),
+
+    // Level 95
+    TITANENFORM("Titanenform", "Verwandle dich in einen Titanen (+100% Stats)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 95, 10, baseDuration = 4),
+
+    // ========== ULTIMATES (6) ==========
+
+    // Level 10
+    URGEWALT("Urgewalt", "Entfessle die Urgewalt - Massiver Schaden + Rage",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 10, 10, baseDamage = 80),
+
+    // Level 20
+    BERSERKERWAHN("Berserkerwahn", "Totale Raserei - Multi-Attack + Lifesteal",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 20, 10, baseDamage = 100),
+
+    // Level 30
+    TITANENZORN("Titanenzorn", "Zorn der Titanen - AOE + Massive Buffs",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 30, 10, baseDamage = 130),
+
+    // Level 50
+    WELTENZERSCHMETTERER("Weltenzerschmetterer", "Zerschmettere die Welt selbst",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 50, 10, baseDamage = 180),
+
+    // Level 75
+    APOKALYPSE("Apokalypse", "Bringe die Apokalypse - Wipe All + Buff Self",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 75, 10, baseDamage = 220),
+
+    // Level 100
+    GOETTERSCHLAECHTER("Götterschlächter", "Schlächte die Götter selbst",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 100, 10, baseDamage = 300);
+
+    // Check ob Normal Skill
+    fun isNormal(): Boolean = category == AbilityCategory.NORMAL
+
+    // Check ob Ultimate
+    fun isUltimate(): Boolean = category == AbilityCategory.ULTIMATE
+
+    // Calculate actual damage (scales with level)
+    fun getDamage(characterLevel: Int): Int {
+        if (baseDamage == 0) return 0
+        return baseDamage + (characterLevel * 2)  // +2 damage per level
+    }
+
+    // Calculate actual healing (scales with level)
+    fun getHealing(characterLevel: Int): Int {
+        if (baseHealing == 0) return 0
+        return baseHealing + (characterLevel / 2)  // +0.5 healing per level
+    }
+
+    // Calculate duration
+    fun getDuration(characterLevel: Int): Int = baseDuration
+
+    // Check if ability is unlocked at level
+    fun isUnlockedAt(characterLevel: Int): Boolean {
+        return characterLevel >= levelRequirement
+    }
+}
+
+// ============================================================================
+// BARBAR PASSIVE ABILITIES
+// ============================================================================
+
+enum class BarbarPassive(
+    val displayName: String,
+    val description: String,
+    val levelRequirement: Int
+) {
+    // Level 2 - Rage
+    RAGE(
+        "Rage",
+        "Aktiviere Rage: +Schaden, +Schadensresistenz, kostet keine Ressourcen. Hält 3 Runden",
+        2
+    ),
+
+    // Level 3 - Unarmored Defense
+    UNARMORED_DEFENSE(
+        "Unarmored Defense",
+        "Wenn du keine Rüstung trägst: AC = 10 + DEX-Mod + CON-Mod",
+        3
+    ),
+
+    // Level 5 - Reckless Attack
+    RECKLESS_ATTACK(
+        "Reckless Attack",
+        "Toggle: +30% Schaden, aber -10 AC. Riskantes Kämpfen für mehr Power",
+        5
+    ),
+
+    // Level 9 - Brutal Critical
+    BRUTAL_CRITICAL(
+        "Brutal Critical",
+        "Kritische Treffer machen +100% mehr Schaden (normal: 2x, brutal: 3x)",
+        9
+    ),
+
+    // Level 11 - Fast Movement
+    FAST_MOVEMENT(
+        "Fast Movement",
+        "+3 Initiative. Du bewegst dich schneller und schlägst früher zu",
+        11
+    ),
+
+    // Level 14 - Relentless Rage
+    RELENTLESS_RAGE(
+        "Relentless Rage",
+        "Während Rage aktiv: Kann nicht unter 1 HP fallen. Cheate den Tod!",
+        14
+    );
+
+    fun isUnlockedAt(characterLevel: Int): Boolean {
+        return characterLevel >= levelRequirement
+    }
+
+    fun getScaledValue(characterLevel: Int): Int {
+        return when(this) {
+            RAGE -> 3  // 3 Runden Duration
+            UNARMORED_DEFENSE -> 10  // Base AC bonus
+            RECKLESS_ATTACK -> 30  // +30% Damage
+            BRUTAL_CRITICAL -> 100  // +100% Crit Damage
+            FAST_MOVEMENT -> 3  // +3 Initiative
+            RELENTLESS_RAGE -> 1  // Cannot die threshold
+        }
+    }
+
+    fun getScaledDescription(characterLevel: Int): String {
+        return when(this) {
+            RAGE -> "$description [${getScaledValue(characterLevel)} Runden]"
+            UNARMORED_DEFENSE -> "$description [+${getScaledValue(characterLevel)} Base AC]"
+            RECKLESS_ATTACK -> "$description [+${getScaledValue(characterLevel)}% Schaden, -10 AC]"
+            BRUTAL_CRITICAL -> "$description [+${getScaledValue(characterLevel)}% Krit-Schaden]"
+            FAST_MOVEMENT -> "$description [+${getScaledValue(characterLevel)} Initiative]"
+            RELENTLESS_RAGE -> description
+        }
+    }
+}
+
 // ==================== D&D 5E SYSTEM ====================
 
 // D&D Attributes
@@ -3827,6 +4088,18 @@ enum class PlayerClass(
     // Gibt die verfügbaren Ultimates zurück
     fun getAvailableUltimates(): List<PaladinAbility> = when(this) {
         PALADIN -> PaladinAbility.values().filter { it.isUltimate() }
+        else -> emptyList()
+    }
+
+    // Gibt die verfügbaren Barbar normalen Fähigkeiten zurück
+    fun getAvailableBarbarAbilities(): List<BarbarAbility> = when(this) {
+        BARBAR -> BarbarAbility.values().filter { it.isNormal() }
+        else -> emptyList()
+    }
+
+    // Gibt die verfügbaren Barbar Ultimates zurück
+    fun getAvailableBarbarUltimates(): List<BarbarAbility> = when(this) {
+        BARBAR -> BarbarAbility.values().filter { it.isUltimate() }
         else -> emptyList()
     }
 
@@ -4030,12 +4303,20 @@ data class CharacterStats(
 
 // Character Loadout (vor Abenteuer gewählt, skaliert mit Level)
 data class CharacterLoadout(
+    // Paladin Abilities
     val normalAbilities: MutableList<PaladinAbility?> = mutableListOf(null, null, null, null, null),  // Max 5
     var ultimateAbility: PaladinAbility? = null,
     var layOnHandsPool: Int = 0,  // Heilungs-Pool (Level × 5)
     var layOnHandsUsed: Int = 0,  // Wie viel bereits genutzt
     var cleansingTouchUsed: Int = 0,  // Wie oft Cleansing Touch genutzt (resets täglich)
-    var divineSmiteActive: Boolean = false  // Divine Smite für nächsten Angriff aktiviert
+    var divineSmiteActive: Boolean = false,  // Divine Smite für nächsten Angriff aktiviert
+
+    // Barbar Abilities
+    val barbarAbilities: MutableList<BarbarAbility?> = mutableListOf(null, null, null, null, null),  // Max 5
+    var barbarUltimate: BarbarAbility? = null,
+    var rageActive: Boolean = false,  // Rage aktiviert
+    var rageRounds: Int = 0,  // Verbleibende Rage-Runden
+    var recklessAttackActive: Boolean = false  // Reckless Attack Toggle
 ) {
     // Wie viele normale Slots sind verfügbar basierend auf Level?
     fun getMaxNormalSlots(characterLevel: Int): Int = when {
