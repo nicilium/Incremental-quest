@@ -1213,7 +1213,15 @@ object GameState {
         val strMod = player.stats.getModifier(DndAttribute.STRENGTH)
         var baseDamage = equipStats.weaponDamage + strMod + (player.stats.level / 2)
 
-        // Apply Improved Divine Smite (Level 11 Passive)
+        // Apply Divine Smite (Level 2 Passive - Optional +2d8)
+        if (player.loadout.divineSmiteActive) {
+            val smiteDamage = PaladinPassive.DIVINE_SMITE.getScaledValue(player.stats.level)
+            baseDamage += smiteDamage
+            player.loadout.divineSmiteActive = false  // Reset after use
+            combat.addLog("💥 DIVINE SMITE! +$smiteDamage heiliger Schaden!")
+        }
+
+        // Apply Improved Divine Smite (Level 11 Passive - Auto)
         if (PaladinPassive.IMPROVED_DIVINE_SMITE.isUnlockedAt(player.stats.level)) {
             val holyDamage = PaladinPassive.IMPROVED_DIVINE_SMITE.getScaledValue(player.stats.level)
             baseDamage += holyDamage
@@ -1230,6 +1238,39 @@ object GameState {
         }
 
         advanceTurn(combat)
+        return true
+    }
+
+    // Activate Divine Smite (Level 2 Passive - +2d8 Holy Damage for 15 Mana)
+    fun activateDivineSmite(): Boolean {
+        val combat = activeCombat ?: return false
+        if (!combat.isCurrentPlayerTurn()) return false
+
+        val player = combat.getCurrentParticipant() as? CombatParticipant.PlayerParticipant ?: return false
+
+        // Check if passive is unlocked
+        if (!PaladinPassive.DIVINE_SMITE.isUnlockedAt(player.stats.level)) {
+            combat.addLog("❌ Divine Smite noch nicht freigeschaltet!")
+            return false
+        }
+
+        // Check mana cost (15)
+        if (player.stats.currentMana < 15) {
+            combat.addLog("❌ Nicht genug Mana für Divine Smite! (15 Mana benötigt)")
+            return false
+        }
+
+        // Check if already active
+        if (player.loadout.divineSmiteActive) {
+            combat.addLog("⚠️ Divine Smite ist bereits aktiv!")
+            return false
+        }
+
+        // Activate Divine Smite
+        player.stats.currentMana -= 15
+        player.loadout.divineSmiteActive = true
+        combat.addLog("⚡ Divine Smite aktiviert! Nächster Angriff macht +2d8 heiligen Schaden!")
+
         return true
     }
 
@@ -3967,6 +4008,24 @@ data class CharacterStats(
         currentMana = maxMana
         temporaryHP = 0
     }
+
+    // Aura of Protection: Get CHA modifier bonus to saving throws
+    fun getAuraOfProtectionBonus(): Int {
+        if (!PaladinPassive.AURA_OF_PROTECTION.isUnlockedAt(level)) return 0
+        return getModifier(DndAttribute.CHARISMA)
+    }
+
+    // Aura Range: 10ft default, 30ft with Aura Expansion
+    fun getAuraRange(): Int {
+        return if (PaladinPassive.AURA_RADIUS_INCREASE.isUnlockedAt(level)) 30 else 10
+    }
+
+    // Enhanced Saving Throw with Aura of Protection
+    fun getSavingThrowWithAura(attr: DndAttribute, proficiencies: List<DndAttribute>): Int {
+        var bonus = getSavingThrowBonus(attr, proficiencies)
+        bonus += getAuraOfProtectionBonus()
+        return bonus
+    }
 }
 
 // Character Loadout (vor Abenteuer gewählt, skaliert mit Level)
@@ -3975,7 +4034,8 @@ data class CharacterLoadout(
     var ultimateAbility: PaladinAbility? = null,
     var layOnHandsPool: Int = 0,  // Heilungs-Pool (Level × 5)
     var layOnHandsUsed: Int = 0,  // Wie viel bereits genutzt
-    var cleansingTouchUsed: Int = 0  // Wie oft Cleansing Touch genutzt (resets täglich)
+    var cleansingTouchUsed: Int = 0,  // Wie oft Cleansing Touch genutzt (resets täglich)
+    var divineSmiteActive: Boolean = false  // Divine Smite für nächsten Angriff aktiviert
 ) {
     // Wie viele normale Slots sind verfügbar basierend auf Level?
     fun getMaxNormalSlots(characterLevel: Int): Int = when {
@@ -4324,6 +4384,43 @@ data class CombatState(
                 addLog("${target.name} erhält ${effect.value} temporäre HP!")
             }
             return
+        }
+
+        // Aura of Protection: Saving throw for debuffs (Player only)
+        if (target is CombatParticipant.PlayerParticipant) {
+            val debuffTypes = listOf(
+                StatusEffectType.BLINDED, StatusEffectType.BURNED,
+                StatusEffectType.STUNNED, StatusEffectType.POISONED, StatusEffectType.WEAKENED
+            )
+
+            if (effect.type in debuffTypes) {
+                // Determine saving throw attribute based on effect type
+                val saveAttr = when(effect.type) {
+                    StatusEffectType.BLINDED, StatusEffectType.STUNNED -> DndAttribute.CONSTITUTION
+                    StatusEffectType.POISONED -> DndAttribute.CONSTITUTION
+                    StatusEffectType.WEAKENED -> DndAttribute.STRENGTH
+                    else -> DndAttribute.WISDOM
+                }
+
+                // Roll saving throw: d20 + modifier + aura bonus
+                val roll = (1..20).random()
+                val savingThrowBonus = target.stats.getSavingThrowWithAura(saveAttr, listOf(DndAttribute.CONSTITUTION, DndAttribute.WISDOM))
+                val totalRoll = roll + savingThrowBonus
+
+                // DC based on effect power (10 + effect level/power)
+                val dc = 10 + (effect.value / 2).coerceAtLeast(2)
+
+                // Aura of Protection bonus display
+                val auraBonus = target.stats.getAuraOfProtectionBonus()
+                val auraText = if (auraBonus > 0) " (+$auraBonus Aura)" else ""
+
+                if (totalRoll >= dc) {
+                    addLog("✅ ${target.name} widerstet ${effect.type}! (Roll: $roll + $savingThrowBonus$auraText = $totalRoll vs DC $dc)")
+                    return
+                } else {
+                    addLog("❌ ${target.name} widerstet ${effect.type} nicht! (Roll: $roll + $savingThrowBonus$auraText = $totalRoll vs DC $dc)")
+                }
+            }
         }
 
         effects.add(effect)

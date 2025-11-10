@@ -205,11 +205,30 @@ Viel Erfolg! 🗡️
         }
         contentLayout.addView(basicAttackButton)
 
-        // Passive Ability Buttons (Lay on Hands, Cleansing Touch)
-        val passiveButtonsLayout = LinearLayout(this)
-        passiveButtonsLayout.orientation = LinearLayout.HORIZONTAL
-        passiveButtonsLayout.gravity = Gravity.CENTER
-        passiveButtonsLayout.setPadding(0, 5, 0, 5)
+        // Passive Ability Buttons Row 1 (Divine Smite)
+        val passiveButtonsLayout1 = LinearLayout(this)
+        passiveButtonsLayout1.orientation = LinearLayout.HORIZONTAL
+        passiveButtonsLayout1.gravity = Gravity.CENTER
+        passiveButtonsLayout1.setPadding(0, 5, 0, 5)
+
+        // Divine Smite Button
+        val divineSmiteButton = Button(this)
+        divineSmiteButton.text = "⚡ Divine Smite (15 Mana)"
+        divineSmiteButton.textSize = 11f
+        divineSmiteButton.setBackgroundColor(Color.rgb(255, 215, 0))
+        divineSmiteButton.setTextColor(Color.BLACK)
+        divineSmiteButton.setOnClickListener {
+            useDivineSmite()
+        }
+        passiveButtonsLayout1.addView(divineSmiteButton)
+
+        contentLayout.addView(passiveButtonsLayout1)
+
+        // Passive Ability Buttons Row 2 (Lay on Hands, Cleansing Touch)
+        val passiveButtonsLayout2 = LinearLayout(this)
+        passiveButtonsLayout2.orientation = LinearLayout.HORIZONTAL
+        passiveButtonsLayout2.gravity = Gravity.CENTER
+        passiveButtonsLayout2.setPadding(0, 5, 0, 5)
 
         // Lay on Hands Button
         val layOnHandsButton = Button(this)
@@ -219,7 +238,7 @@ Viel Erfolg! 🗡️
         layOnHandsButton.setOnClickListener {
             useLayOnHands()
         }
-        passiveButtonsLayout.addView(layOnHandsButton)
+        passiveButtonsLayout2.addView(layOnHandsButton)
 
         // Cleansing Touch Button
         val cleansingTouchButton = Button(this)
@@ -229,9 +248,9 @@ Viel Erfolg! 🗡️
         cleansingTouchButton.setOnClickListener {
             useCleansingTouch()
         }
-        passiveButtonsLayout.addView(cleansingTouchButton)
+        passiveButtonsLayout2.addView(cleansingTouchButton)
 
-        contentLayout.addView(passiveButtonsLayout)
+        contentLayout.addView(passiveButtonsLayout2)
 
         // Skill Buttons Container
         skillButtonsContainer = LinearLayout(this)
@@ -473,6 +492,14 @@ Viel Erfolg! 🗡️
             effects.add("✋ Cleansing Touch: $remaining/$maxUses uses")
         }
 
+        // Aura of Protection & Aura Expansion
+        if (passives.any { it == PaladinPassive.AURA_OF_PROTECTION }) {
+            val auraBonus = stats.getAuraOfProtectionBonus()
+            val auraRange = stats.getAuraRange()
+            val rangeText = if (passives.any { it == PaladinPassive.AURA_RADIUS_INCREASE }) " (${auraRange}ft)" else " (${auraRange}ft)"
+            effects.add("🛡️ Aura of Protection: +$auraBonus zu Saving Throws$rangeText")
+        }
+
         // Display all effects or "Keine aktiven Effekte"
         statusEffectsView.text = if (effects.isEmpty()) {
             "Keine aktiven Effekte"
@@ -585,6 +612,15 @@ Viel Erfolg! 🗡️
         val filled = (percent * length / 100).coerceIn(0, length)
         val empty = length - filled
         return "[" + "▓".repeat(filled) + "░".repeat(empty) + "]"
+    }
+
+    private fun useDivineSmite() {
+        val combat = GameState.getActiveCombat() ?: return
+        if (!combat.isPlayerTurn) return
+
+        if (GameState.activateDivineSmite()) {
+            updateUI()
+        }
     }
 
     private fun useLayOnHands() {
