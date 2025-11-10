@@ -1356,6 +1356,71 @@ object GameState {
         return true
     }
 
+    // ============================================================================
+    // BARBAR RAGE SYSTEM
+    // ============================================================================
+
+    // Activate Rage (Level 2 Passive - No Mana Cost, 3 Rounds Duration)
+    fun activateRage(): Boolean {
+        val combat = activeCombat ?: return false
+        if (!combat.isCurrentPlayerTurn()) return false
+
+        val player = combat.getCurrentParticipant() as? CombatParticipant.PlayerParticipant ?: return false
+
+        // Check if passive is unlocked
+        if (!BarbarPassive.RAGE.isUnlockedAt(player.stats.level)) {
+            combat.addLog("❌ Rage noch nicht freigeschaltet!")
+            return false
+        }
+
+        // Check if already active
+        if (player.loadout.rageActive) {
+            combat.addLog("⚠️ Rage ist bereits aktiv!")
+            return false
+        }
+
+        // Activate Rage
+        val duration = BarbarPassive.RAGE.getScaledValue(player.stats.level)
+        player.loadout.rageActive = true
+        player.loadout.rageRounds = duration
+
+        combat.addLog("💢 RAGE AKTIVIERT! +Schaden, +Schadensresistenz für $duration Runden!")
+        return true
+    }
+
+    // Deactivate Rage (manually or when duration ends)
+    fun deactivateRage() {
+        val combat = activeCombat ?: return
+        val player = combat.playerParty.firstOrNull() ?: return
+
+        if (player.loadout.rageActive) {
+            player.loadout.rageActive = false
+            player.loadout.rageRounds = 0
+            combat.addLog("💢 Rage endet.")
+        }
+    }
+
+    // Toggle Reckless Attack (Level 5 Passive)
+    fun toggleRecklessAttack(): Boolean {
+        val combat = activeCombat ?: return false
+        val player = combat.playerParty.firstOrNull() ?: return false
+
+        if (!BarbarPassive.RECKLESS_ATTACK.isUnlockedAt(player.stats.level)) {
+            combat.addLog("❌ Reckless Attack noch nicht freigeschaltet!")
+            return false
+        }
+
+        player.loadout.recklessAttackActive = !player.loadout.recklessAttackActive
+
+        if (player.loadout.recklessAttackActive) {
+            combat.addLog("⚔️ Reckless Attack AKTIVIERT! +30% Schaden, -10 AC")
+        } else {
+            combat.addLog("🛡️ Reckless Attack DEAKTIVIERT. Normale Defense wiederhergestellt.")
+        }
+
+        return true
+    }
+
     // Get all targets for an ability (AOE support)
     private fun getAbilityTargets(ability: PaladinAbility, combat: CombatState, primaryTargetIndex: Int): List<CombatParticipant> {
         return when(ability) {
@@ -1757,6 +1822,17 @@ object GameState {
         combat.playerParty.forEach { player ->
             val manaRegen = 1  // Base regeneration
             player.stats.currentMana = (player.stats.currentMana + manaRegen).coerceAtMost(player.stats.maxMana)
+        }
+
+        // Decrease Rage duration (Barbar)
+        combat.playerParty.forEach { player ->
+            if (player.loadout.rageActive && player.loadout.rageRounds > 0) {
+                player.loadout.rageRounds--
+                if (player.loadout.rageRounds <= 0) {
+                    player.loadout.rageActive = false
+                    combat.addLog("💢 Rage von ${player.name} endet!")
+                }
+            }
         }
     }
 
@@ -3224,10 +3300,17 @@ enum class EquipmentSet(
     val description: String,
     val hiddenEffect: String? = null
 ) {
+    // Paladin Sets
     PALADIN_SET1("Heiliger Beschützer", "Fokus auf Tank/Defense, hohe Rüstung, kann mehr aushalten"),
     PALADIN_SET2("Lichträcher", "Fokus auf heiligen Schaden, Balance zwischen Tank und Damage"),
     PALADIN_SET3("Heilung", "Fokus auf Heilung, erhöhte Heilung, kann auch andere heilen",
-        "🩹 Hidden: Heilt deinen Schaden an Verbündete (Lifesteal für Team)");
+        "🩹 Hidden: Heilt deinen Schaden an Verbündete (Lifesteal für Team)"),
+
+    // Barbar Sets
+    BARBAR_SET1("Unstoppable Tank", "Fokus auf massiven HP-Pool und Damage Reduction"),
+    BARBAR_SET2("Berserker Rage", "Fokus auf rohen Schaden - Glaskanone mit maximalem Damage"),
+    BARBAR_SET3("Blutdurst Krieger", "Fokus auf Selbstheilung durch Lifesteal",
+        "🩸 Hidden: Heile dich für 25% deines verursachten Schadens");
 
     fun hasHiddenEffect(): Boolean = hiddenEffect != null
 
@@ -3236,6 +3319,7 @@ enum class EquipmentSet(
         if (pieceCount < 2) return null  // Mindestens 2 Teile für Set-Bonus
 
         return when(this) {
+            // Paladin Sets
             PALADIN_SET1 -> SetBonus(  // Tank Set
                 damageBonus = 0,
                 healingBonus = 0,
@@ -3253,6 +3337,25 @@ enum class EquipmentSet(
                 healingBonus = 20 + (pieceCount - 2) * 15,    // 20% bei 2, 35% bei 3
                 damageReduction = 0,
                 maxHPBonus = 0
+            )
+            // Barbar Sets
+            BARBAR_SET1 -> SetBonus(  // Tank Set (mehr HP + DR als Paladin)
+                damageBonus = 0,
+                healingBonus = 0,
+                damageReduction = 15 + (pieceCount - 2) * 5,  // 15% bei 2, 20% bei 3
+                maxHPBonus = 25 + (pieceCount - 2) * 15       // 25% bei 2, 40% bei 3
+            )
+            BARBAR_SET2 -> SetBonus(  // Glaskanone (massiv Damage)
+                damageBonus = 30 + (pieceCount - 2) * 15,     // 30% bei 2, 45% bei 3
+                healingBonus = 0,
+                damageReduction = 0,
+                maxHPBonus = 0
+            )
+            BARBAR_SET3 -> SetBonus(  // Lifesteal Set
+                damageBonus = 10 + (pieceCount - 2) * 5,      // 10% bei 2, 15% bei 3
+                healingBonus = 0,
+                damageReduction = 0,
+                maxHPBonus = 10 + (pieceCount - 2) * 5        // 10% bei 2, 15% bei 3
             )
         }
     }
@@ -3359,6 +3462,62 @@ data class Equipment(
                     stats.wisdomBonus = (1 + (rarityMult / 16)).toInt()
                     stats.charismaBonus = (1 + (rarityMult / 16)).toInt()
                     stats.healingPowerPercent = (10 + (rarityMult / 4)).toInt()
+                }
+            }
+
+            // BARBAR SET 1: Unstoppable Tank (massiver HP-Pool + DR)
+            EquipmentSet.BARBAR_SET1 -> when(slot) {
+                EquipmentSlot.WEAPON -> {  // Kriegsaxt des Titanen
+                    stats.weaponDamage = (18 + (rarityMult * 2) + (tier * 1.5)).toInt()
+                    stats.hpBonus = (15 + (rarityMult * 6) + (tier * 4)).toInt()
+                    stats.strengthBonus = (3 + (rarityMult / 6)).toInt()
+                }
+                EquipmentSlot.ARMOR -> {  // Barbarenrüstung der Unsterblichkeit
+                    stats.acBonus = (6 + (rarityMult * 0.8) + (tier * 0.4)).toInt()
+                    stats.hpBonus = (30 + (rarityMult * 12) + (tier * 8)).toInt()
+                    stats.constitutionBonus = (3 + (rarityMult / 6)).toInt()
+                }
+                EquipmentSlot.ACCESSORY -> {  // Totem der Zähigkeit
+                    stats.hpBonus = (20 + (rarityMult * 8) + (tier * 5)).toInt()
+                    stats.constitutionBonus = (2 + (rarityMult / 8)).toInt()
+                }
+            }
+
+            // BARBAR SET 2: Berserker Rage (Glaskanone - massiver Damage)
+            EquipmentSet.BARBAR_SET2 -> when(slot) {
+                EquipmentSlot.WEAPON -> {  // Zweihandaxt der Vernichtung
+                    stats.weaponDamage = (25 + (rarityMult * 3.5) + (tier * 2.5)).toInt()
+                    stats.strengthBonus = (4 + (rarityMult / 5)).toInt()
+                    stats.critChancePercent = (8 + (rarityMult / 3)).toInt()
+                }
+                EquipmentSlot.ARMOR -> {  // Leichte Berserkerrüstung
+                    stats.acBonus = (3 + (rarityMult * 0.3) + (tier * 0.2)).toInt()
+                    stats.weaponDamage = (15 + (rarityMult * 2) + tier).toInt()
+                    stats.strengthBonus = (3 + (rarityMult / 8)).toInt()
+                }
+                EquipmentSlot.ACCESSORY -> {  // Ring des Zorns
+                    stats.weaponDamage = (18 + (rarityMult * 2.5) + (tier * 1.5)).toInt()
+                    stats.strengthBonus = (3 + (rarityMult / 6)).toInt()
+                    stats.critChancePercent = (10 + (rarityMult / 3)).toInt()
+                }
+            }
+
+            // BARBAR SET 3: Blutdurst Krieger (Lifesteal/Selbstheilung)
+            EquipmentSet.BARBAR_SET3 -> when(slot) {
+                EquipmentSlot.WEAPON -> {  // Klinge des Blutsaugers
+                    stats.weaponDamage = (20 + (rarityMult * 2.5) + (tier * 2)).toInt()
+                    stats.hpBonus = (10 + (rarityMult * 5) + (tier * 3)).toInt()
+                    stats.strengthBonus = (2 + (rarityMult / 10)).toInt()
+                }
+                EquipmentSlot.ARMOR -> {  // Rüstung des Blutkriegers
+                    stats.acBonus = (5 + (rarityMult * 0.5) + (tier * 0.3)).toInt()
+                    stats.hpBonus = (20 + (rarityMult * 8) + (tier * 5)).toInt()
+                    stats.constitutionBonus = (2 + (rarityMult / 10)).toInt()
+                }
+                EquipmentSlot.ACCESSORY -> {  // Amulett der Vampirkraft
+                    stats.hpBonus = (15 + (rarityMult * 6) + (tier * 4)).toInt()
+                    stats.constitutionBonus = (1 + (rarityMult / 16)).toInt()
+                    stats.strengthBonus = (1 + (rarityMult / 16)).toInt()
                 }
             }
         }
@@ -4076,6 +4235,7 @@ enum class PlayerClass(
     // Gibt die verfügbaren Sets für diese Klasse zurück
     fun getAvailableSets(): List<EquipmentSet> = when(this) {
         PALADIN -> listOf(EquipmentSet.PALADIN_SET1, EquipmentSet.PALADIN_SET2, EquipmentSet.PALADIN_SET3)
+        BARBAR -> listOf(EquipmentSet.BARBAR_SET1, EquipmentSet.BARBAR_SET2, EquipmentSet.BARBAR_SET3)
         else -> emptyList() // Andere Klassen haben noch keine Sets
     }
 
@@ -4298,6 +4458,39 @@ data class CharacterStats(
         var bonus = getSavingThrowBonus(attr, proficiencies)
         bonus += getAuraOfProtectionBonus()
         return bonus
+    }
+
+    // ============================================================================
+    // BARBAR PASSIVE BONI
+    // ============================================================================
+
+    // Unarmored Defense (Lv3): AC = 10 + DEX-Mod + CON-Mod (wenn keine Rüstung)
+    fun getUnarmoredDefenseBonus(): Int {
+        if (!BarbarPassive.UNARMORED_DEFENSE.isUnlockedAt(level)) return 0
+        // Only wenn armorBonus = 0 (keine Rüstung getragen)
+        if (armorBonus > 0) return 0
+        return getModifier(DndAttribute.CONSTITUTION)
+    }
+
+    // Fast Movement (Lv11): +3 Initiative
+    fun getFastMovementBonus(): Int {
+        if (!BarbarPassive.FAST_MOVEMENT.isUnlockedAt(level)) return 0
+        return BarbarPassive.FAST_MOVEMENT.getScaledValue(level)
+    }
+
+    // Calculate Initiative with Fast Movement
+    fun getInitiativeWithBarbar(): Int {
+        var init = getInitiative()
+        init += getFastMovementBonus()
+        return init
+    }
+
+    // Brutal Critical: Get crit multiplier (2x normal, 3x with Brutal Critical)
+    fun getCriticalMultiplier(): Int {
+        if (BarbarPassive.BRUTAL_CRITICAL.isUnlockedAt(level)) {
+            return 3  // 3x damage on crit
+        }
+        return 2  // Normal 2x damage on crit
     }
 }
 
