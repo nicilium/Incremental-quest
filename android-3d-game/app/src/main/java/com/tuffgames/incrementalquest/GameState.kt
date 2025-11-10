@@ -2989,6 +2989,79 @@ enum class PaladinAbility(
     AURA_DER_RECHTSCHAFFENHEIT("Aura der Rechtschaffenheit", "Heilt dich und Verbündete pro Runde",
         AbilityType.SPELL, AbilityCategory.NORMAL, 18, 50, baseHealing = 5, baseDuration = 4),
 
+    // EXTENDED SKILLS (Level 20-100)
+    // Level 22
+    HEILIGER_SCHUTZSCHILD("Heiliger Schutzschild", "Gewährt Verbündeten temporäre HP",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 22, 35, baseHealing = 30),
+
+    // Level 25
+    LICHTEXPLOSION("Lichtexplosion", "AOE Schaden + blendet Gegner",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 25, 40, baseDamage = 40, baseDuration = 2),
+
+    // Level 28
+    SEGEN_DER_VERTEIDIGUNG("Segen der Verteidigung", "+20% Armor für 3 Runden",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 28, 30, baseDuration = 3),
+
+    // Level 32
+    HEILIGE_RACHE("Heilige Rache", "Nächster Angriff macht 200% Schaden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 32, 3, baseDamage = 60),
+
+    // Level 35
+    MASSENHEILUNG("Massenheilung", "Heilt alle Verbündeten",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 35, 55, baseHealing = 35),
+
+    // Level 40
+    HEILIGES_GERICHT("Heiliges Gericht", "Richtet Gegner - ignoriert Rüstung + Heilung",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 40, 60, baseDamage = 70, baseHealing = 20),
+
+    // Level 45
+    WALL_OF_FAITH("Wall of Faith", "Reduziert allen Schaden um 75% für 2 Runden",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 45, 50, baseDuration = 2),
+
+    // Level 50
+    GOETTLICHER_ZORN("Göttlicher Zorn", "Massiver Schaden + brennt Gegner",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 50, 65, baseDamage = 90, baseDuration = 3),
+
+    // Level 55
+    SEGEN_DER_EILE("Segen der Eile", "+2 Initiative + Extra-Aktion",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 55, 45, baseDuration = 2),
+
+    // Level 60
+    HEILIGE_AEGIS("Heilige Aegis", "Unverwundbar gegen nächsten Angriff + reflektiert 50%",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 60, 4, baseDuration = 1),
+
+    // Level 65
+    LICHT_DER_HOFFNUNG("Licht der Hoffnung", "Wiederbelebt bei Tod (1x pro Kampf)",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 65, 80, baseHealing = 50),
+
+    // Level 70
+    HEILIGER_KREIS("Heiliger Kreis", "AOE Heilung + Schaden an Untoten",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 70, 70, baseDamage = 60, baseHealing = 40),
+
+    // Level 75
+    SEGEN_DES_LICHTS("Segen des Lichts", "Alle Heilungen +100% für 3 Runden",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 75, 55, baseDuration = 3),
+
+    // Level 80
+    CHAMPION_DES_LICHTS("Champion des Lichts", "+50% Schaden + Immunität gegen Debuffs",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 80, 5, baseDuration = 3),
+
+    // Level 85
+    GOETTLICHE_INTERVENTION_II("Göttliche Intervention II", "Vollheilung + entfernt Tod (besser als Lv30)",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 85, 100, baseHealing = 999, baseDuration = 4),
+
+    // Level 90
+    HEILIGE_VERWANDLUNG("Heilige Verwandlung", "Wird zum Engelkrieger - +100% alle Stats",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 90, 90, baseDuration = 4),
+
+    // Level 95
+    URTEIL_DER_GOETTER("Urteil der Götter", "Massiver AOE - löscht Untote sofort aus",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 95, 85, baseDamage = 200),
+
+    // Level 100 (Capstone)
+    AVATAR_DES_LICHTS("Avatar des Lichts", "Wird zur Licht-Inkarnation - 10 Runden Gottmodus",
+        AbilityType.SPELL, AbilityCategory.NORMAL, 100, 120, baseDuration = 10),
+
     // ULTIMATES
     // Level 10 - Erste Ulti
     UNERSCHUETTERLICHE_FESTUNG("Unerschütterliche Festung", "4 Runden UNVERWUNDBAR + zieht alle Angriffe + heilt 10% HP/Runde",
@@ -3000,7 +3073,19 @@ enum class PaladinAbility(
 
     // Level 30 - Dritte Ulti
     GOETTLICHE_INTERVENTION("Göttliche Intervention", "Vollheilung aller + entfernt alle Debuffs + Immunität 3 Runden",
-        AbilityType.SPELL, AbilityCategory.ULTIMATE, 30, 1, baseHealing = 999, baseDuration = 3);
+        AbilityType.SPELL, AbilityCategory.ULTIMATE, 30, 1, baseHealing = 999, baseDuration = 3),
+
+    // Level 50 - Vierte Ulti
+    HEILIGE_RACHE_ULT("Göttliche Vergeltung", "Tötet Gegner unter 30% HP sofort + heilt dich für Overkill",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 50, 1, baseDamage = 150, baseHealing = 50),
+
+    // Level 75 - Fünfte Ulti
+    ERLOESUNGSSCHLAG("Erlösungsschlag", "One-Hit-Kill + resurrect gefallene Verbündete",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 75, 1, baseDamage = 500, baseHealing = 100),
+
+    // Level 100 - Ultimate Capstone
+    GOTTES_ZORN("Gottes Zorn", "Löscht alle Gegner aus + Vollheilung aller + 5 Runden Immunität",
+        AbilityType.SPELL, AbilityCategory.ULTIMATE, 100, 1, baseDamage = 999, baseHealing = 999, baseDuration = 5);
 
     fun isNormal(): Boolean = category == AbilityCategory.NORMAL
     fun isUltimate(): Boolean = category == AbilityCategory.ULTIMATE
@@ -3347,14 +3432,23 @@ data class CharacterStats(
 
     // XP needed for next level (D&D 5e progression)
     fun getNextLevelXP(): Int {
-        val xpTable = listOf(
-            0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000,
-            85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000
-        )
-        return if (level < 20) xpTable[level] else 999999
+        // D&D 5e XP for levels 1-20
+        if (level < 20) {
+            val xpTable = listOf(
+                0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000,
+                85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000
+            )
+            return xpTable[level]
+        }
+
+        // Extended XP for levels 20-100 (exponential scaling)
+        // Formula: 355000 × 1.15^(level - 19)
+        val baseXP = 355000.0
+        val exponent = level - 19
+        return (baseXP * 1.15.pow(exponent.toDouble())).toInt()
     }
 
-    fun canLevelUp(): Boolean = experience >= getNextLevelXP() && level < 20
+    fun canLevelUp(): Boolean = experience >= getNextLevelXP() && level < 100
 
     fun levelUp(playerClass: PlayerClass) {
         if (!canLevelUp()) return
