@@ -420,6 +420,26 @@ Zufallskampf für Belohnungen
                 alert.show()
             }
             card.addView(loadoutButton)
+
+            // Skill Tree Button
+            val skillTreeButton = Button(this)
+            val availablePoints = GameState.availableSkillPoints
+            val unlockedCount = GameState.getUnlockedSkills().size
+            skillTreeButton.text = if (availablePoints > 0) {
+                "🌳 SKILL-BAUM ($availablePoints Points verfügbar!)"
+            } else {
+                "🌳 Skill-Baum ($unlockedCount/100 Skills)"
+            }
+            skillTreeButton.textSize = 14f
+            skillTreeButton.setBackgroundColor(if (availablePoints > 0) Color.rgb(100, 200, 50) else Color.rgb(50, 100, 150))
+            skillTreeButton.setTextColor(Color.WHITE)
+            skillTreeButton.typeface = if (availablePoints > 0) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            skillTreeButton.setPadding(10, 10, 10, 10)
+            skillTreeButton.setOnClickListener {
+                val intent = Intent(this, SkillTreeActivity::class.java)
+                startActivity(intent)
+            }
+            card.addView(skillTreeButton)
         } else {
             // Paladin-Button (nur beim ersten Mal)
             val paladinButton = Button(this)
