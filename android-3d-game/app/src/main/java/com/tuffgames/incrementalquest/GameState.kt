@@ -989,10 +989,11 @@ object GameState {
     }
 
     // Get all active set bonuses
-    fun getActiveSetBonuses(): Map<EquipmentSet, Int> {
+    // Get active set counts (for UI display)
+    fun getActiveSetCounts(): Map<EquipmentSet, Int> {
         val setBonuses = mutableMapOf<EquipmentSet, Int>()
         equippedItems.values.forEach { equipment ->
-            setBonuses[equipment.set] = setBonuses.getOrDefault(equipment.set, 0) + 1
+            setBonuses[equipment.set] = (setBonuses[equipment.set] ?: 0) + 1
         }
         return setBonuses.filter { it.value >= 2 }  // Only show sets with 2+ pieces
     }
@@ -1018,6 +1019,24 @@ object GameState {
         }
 
         return totalStats
+    }
+
+    // Get active set bonuses from equipped items
+    fun getActiveSetBonuses(): List<SetBonus> {
+        val setBonuses = mutableListOf<SetBonus>()
+
+        // Count pieces per set
+        val setCount = mutableMapOf<EquipmentSet, Int>()
+        equippedItems.values.forEach { equipment ->
+            setCount[equipment.set] = (setCount[equipment.set] ?: 0) + 1
+        }
+
+        // Get bonuses for each set
+        setCount.forEach { (set, count) ->
+            set.getSetBonuses(count)?.let { setBonuses.add(it) }
+        }
+
+        return setBonuses
     }
 
     // Apply equipment bonuses to character stats (called when equipping/unequipping)
@@ -1119,6 +1138,15 @@ object GameState {
         // Check if tutorial combat for first story
         val isTutorial = combatType == CombatType.STORY && !hasCompletedTutorialCombat
 
+        // Initialize Lay on Hands pool for this combat
+        if (PaladinPassive.LAY_ON_HANDS.isUnlockedAt(stats.level)) {
+            characterLoadout.layOnHandsPool = 5 * stats.level
+            characterLoadout.layOnHandsUsed = 0
+        }
+
+        // Reset Cleansing Touch uses
+        characterLoadout.cleansingTouchUsed = 0
+
         // Create player participant
         val playerParticipant = CombatParticipant.PlayerParticipant(
             stats = stats,
@@ -1183,7 +1211,15 @@ object GameState {
         // Calculate damage
         val equipStats = getTotalEquipmentStats()
         val strMod = player.stats.getModifier(DndAttribute.STRENGTH)
-        val baseDamage = equipStats.weaponDamage + strMod + (player.stats.level / 2)
+        var baseDamage = equipStats.weaponDamage + strMod + (player.stats.level / 2)
+
+        // Apply Improved Divine Smite (Level 11 Passive)
+        if (PaladinPassive.IMPROVED_DIVINE_SMITE.isUnlockedAt(player.stats.level)) {
+            val holyDamage = PaladinPassive.IMPROVED_DIVINE_SMITE.getScaledValue(player.stats.level)
+            baseDamage += holyDamage
+            combat.addLog("⚡ Improved Divine Smite: +$holyDamage heiliger Schaden!")
+        }
+
         val damage = calculateDamage(baseDamage, target.enemy.armor)
 
         target.enemy.takeDamage(damage)
@@ -1197,6 +1233,114 @@ object GameState {
         return true
     }
 
+    // Use Lay on Hands (Level 6 Passive - Healing Pool)
+    fun useLayOnHands(amount: Int): Boolean {
+        val combat = activeCombat ?: return false
+        if (!combat.isCurrentPlayerTurn()) return false
+
+        val player = combat.getCurrentParticipant() as? CombatParticipant.PlayerParticipant ?: return false
+
+        // Check if passive is unlocked
+        if (!PaladinPassive.LAY_ON_HANDS.isUnlockedAt(player.stats.level)) {
+            combat.addLog("❌ Lay on Hands noch nicht freigeschaltet!")
+            return false
+        }
+
+        // Check if enough healing available
+        val loadout = player.loadout
+        val remaining = loadout.layOnHandsPool - loadout.layOnHandsUsed
+        if (remaining < amount) {
+            combat.addLog("❌ Nicht genug Lay on Hands verfügbar! ($remaining HP verbleibend)")
+            return false
+        }
+
+        // Apply healing
+        val actualAmount = amount.coerceAtMost(player.stats.maxHP - player.stats.currentHP)
+        player.stats.heal(actualAmount)
+        loadout.layOnHandsUsed += actualAmount
+
+        combat.addLog("${player.name} nutzt Lay on Hands und heilt sich um $actualAmount HP! (${loadout.layOnHandsPool - loadout.layOnHandsUsed}/${loadout.layOnHandsPool} verbleibend)")
+
+        advanceTurn(combat)
+        return true
+    }
+
+    // Use Cleansing Touch (Level 14 Passive - Remove Debuffs)
+    fun useCleansingTouch(): Boolean {
+        val combat = activeCombat ?: return false
+        if (!combat.isCurrentPlayerTurn()) return false
+
+        val player = combat.getCurrentParticipant() as? CombatParticipant.PlayerParticipant ?: return false
+
+        // Check if passive is unlocked
+        if (!PaladinPassive.CLEANSING_TOUCH.isUnlockedAt(player.stats.level)) {
+            combat.addLog("❌ Cleansing Touch noch nicht freigeschaltet!")
+            return false
+        }
+
+        // Check uses remaining
+        val loadout = player.loadout
+        val maxUses = 3 + (player.stats.level / 10)
+        if (loadout.cleansingTouchUsed >= maxUses) {
+            combat.addLog("❌ Keine Cleansing Touch Uses mehr verfügbar!")
+            return false
+        }
+
+        // Remove all debuffs
+        val debuffs = listOf(
+            StatusEffectType.BLINDED,
+            StatusEffectType.BURNED,
+            StatusEffectType.STUNNED,
+            StatusEffectType.POISONED,
+            StatusEffectType.WEAKENED
+        )
+
+        var removed = 0
+        debuffs.forEach { debuff ->
+            if (combat.hasStatusEffect(player, debuff)) {
+                combat.removeStatusEffect(player, debuff)
+                removed++
+            }
+        }
+
+        loadout.cleansingTouchUsed++
+
+        if (removed > 0) {
+            combat.addLog("${player.name} nutzt Cleansing Touch und entfernt $removed Debuff(s)!")
+        } else {
+            combat.addLog("${player.name} nutzt Cleansing Touch, aber es gibt keine Debuffs zu entfernen.")
+        }
+
+        advanceTurn(combat)
+        return true
+    }
+
+    // Get all targets for an ability (AOE support)
+    private fun getAbilityTargets(ability: PaladinAbility, combat: CombatState, primaryTargetIndex: Int): List<CombatParticipant> {
+        return when(ability) {
+            // AOE Damage Skills
+            PaladinAbility.LICHTEXPLOSION,
+            PaladinAbility.HEILIGER_KREIS,
+            PaladinAbility.URTEIL_DER_GOETTER,
+            PaladinAbility.GOTTES_ZORN -> {
+                // All living enemies
+                combat.getAliveEnemies()
+            }
+
+            // Group Healing
+            PaladinAbility.MASSENHEILUNG -> {
+                // All living allies
+                combat.getAliveAllies()
+            }
+
+            // Single Target (default)
+            else -> {
+                val target = combat.enemyParty.getOrNull(primaryTargetIndex)
+                if (target != null && target.isAlive()) listOf(target) else emptyList()
+            }
+        }
+    }
+
     // Execute player ability
     fun executePlayerAbility(ability: PaladinAbility, targetIndex: Int = 0): Boolean {
         val combat = activeCombat ?: return false
@@ -1205,7 +1349,7 @@ object GameState {
         val player = combat.getCurrentParticipant() as? CombatParticipant.PlayerParticipant ?: return false
 
         // Check cooldown
-        if (combat.abilityCooldowns.getOrDefault(ability, 0) > 0) {
+        if (combat.abilityCooldowns[ability] ?: 0 > 0) {
             combat.addLog("${ability.displayName} ist noch auf Cooldown!")
             return false
         }
@@ -1219,32 +1363,12 @@ object GameState {
             player.stats.currentMana -= ability.cost
         }
 
-        // Execute ability effect
-        when {
-            ability.baseDamage > 0 -> {
-                // Damage ability
-                val target = combat.enemyParty.getOrNull(targetIndex) ?: return false
-                if (!target.isAlive()) return false
+        // Get targets (supports AOE)
+        val targets = getAbilityTargets(ability, combat, targetIndex)
+        if (targets.isEmpty()) return false
 
-                val damage = calculateAbilityDamage(ability, player)
-                target.enemy.takeDamage(damage)
-                combat.addLog("${player.name} nutzt ${ability.displayName} gegen ${target.name} und macht $damage Schaden!")
-
-                if (target.enemy.isDead()) {
-                    combat.addLog("${target.name} wurde besiegt!", true)
-                }
-            }
-            ability.baseHealing > 0 -> {
-                // Healing ability
-                val healing = calculateHealing(ability, player)
-                player.stats.heal(healing)
-                combat.addLog("${player.name} nutzt ${ability.displayName} und heilt sich um $healing HP!")
-            }
-            else -> {
-                // Buff/Utility ability
-                combat.addLog("${player.name} nutzt ${ability.displayName}!")
-            }
-        }
+        // Execute ability effect with special mechanics
+        executeAbilityEffects(ability, player, targets, combat)
 
         // Set cooldown for COMBAT abilities
         if (ability.type == AbilityType.COMBAT) {
@@ -1255,6 +1379,194 @@ object GameState {
         return true
     }
 
+    // Execute ability effects (separated for better organization)
+    private fun executeAbilityEffects(
+        ability: PaladinAbility,
+        player: CombatParticipant.PlayerParticipant,
+        targets: List<CombatParticipant>,
+        combat: CombatState
+    ) {
+        when {
+            ability.baseDamage > 0 -> {
+                // Damage ability
+                var damage = calculateAbilityDamage(ability, player, combat)
+
+                // Armor-Ignore for specific abilities
+                val ignoreArmor = ability == PaladinAbility.HEILIGES_GERICHT
+
+                targets.forEach { target ->
+                    if (target is CombatParticipant.EnemyParticipant) {
+                        val actualDamage = if (ignoreArmor) {
+                            damage  // No armor reduction
+                        } else {
+                            calculateDamage(damage, target.enemy.armor)
+                        }
+
+                        target.enemy.takeDamage(actualDamage)
+
+                        if (target.enemy.isDead()) {
+                            combat.addLog("${target.name} wurde besiegt!", true)
+                        }
+                    }
+                }
+
+                if (targets.size > 1) {
+                    combat.addLog("${player.name} nutzt ${ability.displayName} gegen ${targets.size} Ziele und macht je $damage Schaden!")
+                } else {
+                    combat.addLog("${player.name} nutzt ${ability.displayName} gegen ${targets.first().name} und macht $damage Schaden!")
+                }
+            }
+            ability.baseHealing > 0 -> {
+                // Healing ability
+                val healing = calculateHealing(ability, player, combat)
+
+                targets.forEach { target ->
+                    if (target is CombatParticipant.PlayerParticipant) {
+                        target.stats.heal(healing)
+                    }
+                }
+
+                if (targets.size > 1) {
+                    combat.addLog("${player.name} nutzt ${ability.displayName} und heilt ${targets.size} Verbündete um je $healing HP!")
+                } else {
+                    combat.addLog("${player.name} nutzt ${ability.displayName} und heilt sich um $healing HP!")
+                }
+            }
+            else -> {
+                // Buff/Utility ability
+                combat.addLog("${player.name} nutzt ${ability.displayName}!")
+            }
+        }
+
+        // Apply special ability effects (Status Effects, Buffs, etc.)
+        applyAbilitySpecialEffects(ability, player, targets, combat)
+    }
+
+    // Apply special ability effects (Status Effects, Transformations, etc.)
+    private fun applyAbilitySpecialEffects(
+        ability: PaladinAbility,
+        player: CombatParticipant.PlayerParticipant,
+        targets: List<CombatParticipant>,
+        combat: CombatState
+    ) {
+        // Execute Mechanics (kill if below threshold)
+        if (ability == PaladinAbility.HEILIGE_RACHE_ULT) {
+            targets.forEach { target ->
+                if (target is CombatParticipant.EnemyParticipant) {
+                    val hpPercent = (target.enemy.currentHP * 100) / target.enemy.maxHP
+                    if (hpPercent <= 30) {
+                        val overkill = target.enemy.currentHP
+                        target.enemy.takeDamage(9999)
+                        player.stats.heal(overkill)  // Heal for overkill damage
+                        combat.addLog("⚔️ EXECUTE! ${target.name} wurde unter 30% HP sofort getötet! (+$overkill HP)")
+                    }
+                }
+            }
+        }
+
+        // Resurrection + One-Hit-Kill
+        if (ability == PaladinAbility.ERLOESUNGSSCHLAG) {
+            targets.forEach { target ->
+                if (target is CombatParticipant.EnemyParticipant) {
+                    target.enemy.takeDamage(9999)  // Instant kill
+                    combat.addLog("💀 ${target.name} wurde durch Erlösungsschlag sofort getötet!")
+                }
+            }
+            // Revive all dead allies (if any in future party system)
+            player.stats.heal(100)
+            combat.addLog("✨ Alle Verbündeten werden wiederbelebt!")
+        }
+
+        // Armor-Ignore Mechanic
+        if (ability == PaladinAbility.HEILIGES_GERICHT) {
+            // Already handled in damage calculation, but add log
+            combat.addLog("⚡ Ignoriert Rüstung des Ziels!")
+            val healing = 50 + (player.stats.level * 2)
+            player.stats.heal(healing)
+            combat.addLog("💚 Heilt für $healing HP!")
+        }
+
+        // Apply effects based on specific abilities
+        when (ability) {
+            // Temp HP / Shield
+            PaladinAbility.HEILIGER_SCHUTZSCHILD -> {
+                val tempHP = 30 + (player.stats.level * 2)
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.SHIELD, 0, tempHP, ability.displayName))
+            }
+
+            // Blinding AOE
+            PaladinAbility.LICHTEXPLOSION -> {
+                targets.forEach { target ->
+                    combat.addStatusEffect(target, StatusEffect(StatusEffectType.BLINDED, 2, 0, ability.displayName))
+                }
+            }
+
+            // Defense Buff
+            PaladinAbility.SEGEN_DER_VERTEIDIGUNG -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.DAMAGE_RESIST, 3, 20, ability.displayName))
+            }
+
+            // Damage Reduction Wall
+            PaladinAbility.WALL_OF_FAITH -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.DAMAGE_RESIST, 2, 75, ability.displayName))
+            }
+
+            // Burn DOT
+            PaladinAbility.GOETTLICHER_ZORN -> {
+                targets.forEach { target ->
+                    combat.addStatusEffect(target, StatusEffect(StatusEffectType.BURNED, 3, 15, ability.displayName))
+                }
+            }
+
+            // Haste Buff
+            PaladinAbility.SEGEN_DER_EILE -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.HASTE, 2, 0, ability.displayName))
+            }
+
+            // Reflect Shield
+            PaladinAbility.HEILIGE_AEGIS -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.REFLECT, 1, 50, ability.displayName))
+            }
+
+            // Revive on Death
+            PaladinAbility.LICHT_DER_HOFFNUNG -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.REVIVE_ON_DEATH, 1, 0, ability.displayName))
+            }
+
+            // Healing Boost
+            PaladinAbility.SEGEN_DES_LICHTS -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.REGENERATION, 3, 15, ability.displayName))
+            }
+
+            // Immunity + Damage
+            PaladinAbility.CHAMPION_DES_LICHTS -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.IMMUNE, 3, 0, ability.displayName))
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.DIVINE_POWER, 3, 50, ability.displayName))
+            }
+
+            // God Mode Transformation
+            PaladinAbility.HEILIGE_VERWANDLUNG -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.TRANSFORMATION, 4, 100, ability.displayName))
+            }
+
+            // Ultimate God Mode
+            PaladinAbility.AVATAR_DES_LICHTS -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.TRANSFORMATION, 10, 100, ability.displayName))
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.IMMUNE, 10, 0, ability.displayName))
+            }
+
+            // Ultimate with Full Heal + Immunity
+            PaladinAbility.GOTTES_ZORN -> {
+                player.stats.heal(999)
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.IMMUNE, 5, 0, ability.displayName))
+            }
+
+            else -> {
+                // No special effects for this ability
+            }
+        }
+    }
+
     // Calculate damage with AC reduction
     private fun calculateDamage(baseDamage: Int, targetAC: Int): Int {
         // Simple formula: damage - (AC / 4)
@@ -1263,19 +1575,66 @@ object GameState {
     }
 
     // Calculate ability damage
-    private fun calculateAbilityDamage(ability: PaladinAbility, player: CombatParticipant.PlayerParticipant): Int {
+    private fun calculateAbilityDamage(ability: PaladinAbility, player: CombatParticipant.PlayerParticipant, combat: CombatState): Int {
         val equipStats = getTotalEquipmentStats()
         val baseDamage = ability.getDamage(player.stats.level)
         val weaponBonus = equipStats.weaponDamage / 2
-        return baseDamage + weaponBonus
+        var totalDamage = baseDamage + weaponBonus
+
+        // Apply status effect modifiers
+        val playerEffects = combat.getActiveEffects(player)
+        playerEffects.forEach { effect ->
+            when (effect.type) {
+                StatusEffectType.DIVINE_POWER -> {
+                    totalDamage = (totalDamage * (100 + effect.value)) / 100
+                }
+                StatusEffectType.WEAKENED -> {
+                    totalDamage = totalDamage / 2
+                }
+                StatusEffectType.TRANSFORMATION -> {
+                    totalDamage = totalDamage * 2  // 100% mehr Damage
+                }
+                else -> {}
+            }
+        }
+
+        // Apply equipment set bonuses
+        val setBonuses = getActiveSetBonuses()
+        for (setBonus in setBonuses) {
+            totalDamage = (totalDamage * (100 + setBonus.damageBonus)) / 100
+        }
+
+        return totalDamage.coerceAtLeast(1)
     }
 
     // Calculate healing
-    private fun calculateHealing(ability: PaladinAbility, player: CombatParticipant.PlayerParticipant): Int {
+    private fun calculateHealing(ability: PaladinAbility, player: CombatParticipant.PlayerParticipant, combat: CombatState): Int {
         val equipStats = getTotalEquipmentStats()
         val baseHealing = ability.getHealing(player.stats.level)
         val healingBonus = (baseHealing * equipStats.healingPowerPercent) / 100
-        return baseHealing + healingBonus
+        var totalHealing = baseHealing + healingBonus
+
+        // Apply status effect modifiers
+        val playerEffects = combat.getActiveEffects(player)
+        playerEffects.forEach { effect ->
+            when (effect.type) {
+                StatusEffectType.TRANSFORMATION -> {
+                    totalHealing = totalHealing * 2  // 100% mehr Healing
+                }
+                StatusEffectType.POISONED -> {
+                    totalHealing = totalHealing / 2  // 50% weniger Healing
+                }
+                else -> {}
+            }
+        }
+
+        // Apply equipment set bonuses
+        val setBonuses = getActiveSetBonuses()
+        for (setBonus in setBonuses) {
+            totalHealing = (totalHealing * (100 + setBonus.healingBonus)) / 100
+        }
+
+        return totalHealing.coerceAtLeast(0)
     }
 
     // Execute enemy turn (AI)
@@ -1339,8 +1698,14 @@ object GameState {
         combat.currentRound++
         combat.addLog("--- Runde ${combat.currentRound} ---", true)
 
+        // Process status effects (DOT, HOT, etc.)
+        combat.updateStatusEffects()
+
+        // Decrease status effect durations
+        combat.decreaseStatusEffectDurations()
+
         // Reduce cooldowns
-        combat.abilityCooldowns.keys.forEach { ability ->
+        combat.abilityCooldowns.keys.toList().forEach { ability ->
             val current = combat.abilityCooldowns[ability] ?: 0
             if (current > 0) {
                 combat.abilityCooldowns[ability] = current - 1
@@ -2824,7 +3189,41 @@ enum class EquipmentSet(
         "🩹 Hidden: Heilt deinen Schaden an Verbündete (Lifesteal für Team)");
 
     fun hasHiddenEffect(): Boolean = hiddenEffect != null
+
+    // Get set bonuses for this set
+    fun getSetBonuses(pieceCount: Int): SetBonus? {
+        if (pieceCount < 2) return null  // Mindestens 2 Teile für Set-Bonus
+
+        return when(this) {
+            PALADIN_SET1 -> SetBonus(  // Tank Set
+                damageBonus = 0,
+                healingBonus = 0,
+                damageReduction = 10 + (pieceCount - 2) * 5,  // 10% bei 2, 15% bei 3
+                maxHPBonus = 15 + (pieceCount - 2) * 10       // 15% bei 2, 25% bei 3
+            )
+            PALADIN_SET2 -> SetBonus(  // Damage Set
+                damageBonus = 15 + (pieceCount - 2) * 10,     // 15% bei 2, 25% bei 3
+                healingBonus = 0,
+                damageReduction = 0,
+                maxHPBonus = 0
+            )
+            PALADIN_SET3 -> SetBonus(  // Healing Set
+                damageBonus = 0,
+                healingBonus = 20 + (pieceCount - 2) * 15,    // 20% bei 2, 35% bei 3
+                damageReduction = 0,
+                maxHPBonus = 0
+            )
+        }
+    }
 }
+
+// Set Bonus Stats
+data class SetBonus(
+    val damageBonus: Int = 0,          // % Damage increase
+    val healingBonus: Int = 0,         // % Healing increase
+    val damageReduction: Int = 0,      // % Damage reduction
+    val maxHPBonus: Int = 0            // % Max HP increase
+)
 
 // Equipment Stats Container
 data class EquipmentStats(
@@ -3826,6 +4225,57 @@ data class CombatLogEntry(
     val isImportant: Boolean = false
 )
 
+// Status Effects System
+enum class StatusEffectType {
+    // Debuffs
+    BLINDED,        // -4 zu Attack Rolls
+    BURNED,         // X Schaden pro Runde
+    STUNNED,        // Kann nicht agieren
+    POISONED,       // X Schaden pro Runde + reduzierte Heilung
+    WEAKENED,       // -50% Damage
+
+    // Buffs
+    BLESSED,        // +2 zu allen Rolls
+    SHIELD,         // Temporäre HP
+    DAMAGE_RESIST,  // % Damage Reduction
+    REFLECT,        // % Schaden reflektieren
+    IMMUNE,         // Immun gegen Debuffs
+    HASTE,          // +Initiative, Extra Actions
+    DIVINE_POWER,   // +% Damage
+    REGENERATION,   // +X HP pro Runde
+
+    // Special
+    TRANSFORMATION, // God-Mode (Avatar des Lichts)
+    REVIVE_ON_DEATH // Auto-Resurrect
+}
+
+data class StatusEffect(
+    val type: StatusEffectType,
+    val duration: Int,          // Verbleibende Runden (-1 = permanent bis Kampfende)
+    val value: Int = 0,         // Stärke des Effekts (Damage, %, etc.)
+    val source: String = ""     // Name des Skills der das verursacht hat
+) {
+    fun getRemainingRounds(): Int = duration
+
+    fun getDescription(): String = when(type) {
+        StatusEffectType.BLINDED -> "Geblendet (-4 Angriff) - $duration Runden"
+        StatusEffectType.BURNED -> "Brennend ($value Schaden/Runde) - $duration Runden"
+        StatusEffectType.STUNNED -> "Betäubt (kein Zug) - $duration Runden"
+        StatusEffectType.POISONED -> "Vergiftet ($value Schaden/Runde) - $duration Runden"
+        StatusEffectType.WEAKENED -> "Geschwächt (-50% Damage) - $duration Runden"
+        StatusEffectType.BLESSED -> "Gesegnet (+2 Rolls) - $duration Runden"
+        StatusEffectType.SHIELD -> "Schild ($value Temp-HP)"
+        StatusEffectType.DAMAGE_RESIST -> "Schadensreduktion ($value%) - $duration Runden"
+        StatusEffectType.REFLECT -> "Schadensspiegelung ($value%) - $duration Runden"
+        StatusEffectType.IMMUNE -> "Immun gegen Debuffs - $duration Runden"
+        StatusEffectType.HASTE -> "Eile (+Initiative) - $duration Runden"
+        StatusEffectType.DIVINE_POWER -> "Göttliche Kraft (+$value% Damage) - $duration Runden"
+        StatusEffectType.REGENERATION -> "Regeneration (+$value HP/Runde) - $duration Runden"
+        StatusEffectType.TRANSFORMATION -> "Göttliche Transformation! - $duration Runden"
+        StatusEffectType.REVIVE_ON_DEATH -> "Wiederbelebung bei Tod - $duration Runden"
+    }
+}
+
 // Combat State (active combat instance)
 data class CombatState(
     val combatType: CombatType,
@@ -3837,6 +4287,7 @@ data class CombatState(
     var currentTurnIndex: Int = 0,
     val combatLog: MutableList<CombatLogEntry> = mutableListOf(),
     val abilityCooldowns: MutableMap<PaladinAbility, Int> = mutableMapOf(),
+    val statusEffects: MutableMap<CombatParticipant, MutableList<StatusEffect>> = mutableMapOf(),
     var isPlayerTurn: Boolean = false,
     var combatEnded: Boolean = false,
     var combatResult: CombatResult? = null,
@@ -3856,9 +4307,119 @@ data class CombatState(
         combatLog.add(CombatLogEntry(currentRound, message, important))
     }
 
+    // Status Effect Management
+    fun addStatusEffect(target: CombatParticipant, effect: StatusEffect) {
+        // Check immunity
+        if (hasStatusEffect(target, StatusEffectType.IMMUNE)) {
+            addLog("${target.name} ist immun gegen ${effect.type}!")
+            return
+        }
+
+        val effects = statusEffects.getOrPut(target) { mutableListOf() }
+
+        // Special handling for SHIELD (add to temp HP)
+        if (effect.type == StatusEffectType.SHIELD) {
+            if (target is CombatParticipant.PlayerParticipant) {
+                target.stats.temporaryHP += effect.value
+                addLog("${target.name} erhält ${effect.value} temporäre HP!")
+            }
+            return
+        }
+
+        effects.add(effect)
+        addLog("${target.name} erhält: ${effect.type} (${effect.duration} Runden)")
+    }
+
+    fun removeStatusEffect(target: CombatParticipant, type: StatusEffectType) {
+        statusEffects[target]?.removeAll { it.type == type }
+    }
+
+    fun hasStatusEffect(target: CombatParticipant, type: StatusEffectType): Boolean {
+        return statusEffects[target]?.any { it.type == type } ?: false
+    }
+
+    fun getStatusEffect(target: CombatParticipant, type: StatusEffectType): StatusEffect? {
+        return statusEffects[target]?.firstOrNull { it.type == type }
+    }
+
+    fun getActiveEffects(target: CombatParticipant): List<StatusEffect> {
+        return statusEffects[target] ?: emptyList()
+    }
+
+    fun updateStatusEffects() {
+        // Process all status effects for all participants
+        val allParticipants = (playerParty as List<CombatParticipant>) + (enemyParty as List<CombatParticipant>)
+
+        allParticipants.forEach { participant ->
+            if (!participant.isAlive()) return@forEach
+
+            val effects = statusEffects[participant] ?: return@forEach
+            val toRemove = mutableListOf<StatusEffect>()
+
+            effects.forEach { effect ->
+                when (effect.type) {
+                    StatusEffectType.BURNED, StatusEffectType.POISONED -> {
+                        // DOT Damage
+                        if (participant is CombatParticipant.PlayerParticipant) {
+                            participant.stats.takeDamage(effect.value)
+                        } else if (participant is CombatParticipant.EnemyParticipant) {
+                            participant.enemy.takeDamage(effect.value)
+                        }
+                        addLog("${participant.name} nimmt ${effect.value} ${effect.type}-Schaden!")
+                    }
+                    StatusEffectType.REGENERATION -> {
+                        // HOT Healing
+                        if (participant is CombatParticipant.PlayerParticipant) {
+                            participant.stats.heal(effect.value)
+                        } else if (participant is CombatParticipant.EnemyParticipant) {
+                            participant.enemy.currentHP = (participant.enemy.currentHP + effect.value).coerceAtMost(participant.enemy.maxHP)
+                        }
+                        addLog("${participant.name} regeneriert ${effect.value} HP!")
+                    }
+                    else -> {}
+                }
+            }
+
+            // Remove expired effects (duration reaches 0)
+            effects.removeAll { toRemove.contains(it) }
+        }
+    }
+
+    fun decreaseStatusEffectDurations() {
+        val allParticipants = (playerParty as List<CombatParticipant>) + (enemyParty as List<CombatParticipant>)
+
+        allParticipants.forEach { participant ->
+            val effects = statusEffects[participant] ?: return@forEach
+
+            effects.forEach { effect ->
+                if (effect.duration > 0) {
+                    // Decrease duration (create new object with reduced duration)
+                    val index = effects.indexOf(effect)
+                    effects[index] = effect.copy(duration = effect.duration - 1)
+                }
+            }
+
+            // Remove expired effects
+            effects.removeAll { it.duration == 0 }
+        }
+    }
+
     fun checkCombatEnd(): Boolean {
         val allEnemiesDead = enemyParty.all { it.enemy.isDead() }
-        val allPlayersDead = playerParty.all { !it.isAlive() }
+        var allPlayersDead = playerParty.all { !it.isAlive() }
+
+        // Check for Revive-on-Death effects
+        if (allPlayersDead) {
+            playerParty.forEach { player ->
+                if (!player.isAlive() && hasStatusEffect(player, StatusEffectType.REVIVE_ON_DEATH)) {
+                    // Revive with 50% HP
+                    player.stats.currentHP = player.stats.maxHP / 2
+                    removeStatusEffect(player, StatusEffectType.REVIVE_ON_DEATH)
+                    addLog("✨ ${player.name} wird durch ${getStatusEffect(player, StatusEffectType.REVIVE_ON_DEATH)?.source ?: "göttliche Intervention"} wiederbelebt!", true)
+                    allPlayersDead = false
+                }
+            }
+        }
 
         if (allEnemiesDead || allPlayersDead) {
             combatEnded = true

@@ -205,6 +205,34 @@ Viel Erfolg! 🗡️
         }
         contentLayout.addView(basicAttackButton)
 
+        // Passive Ability Buttons (Lay on Hands, Cleansing Touch)
+        val passiveButtonsLayout = LinearLayout(this)
+        passiveButtonsLayout.orientation = LinearLayout.HORIZONTAL
+        passiveButtonsLayout.gravity = Gravity.CENTER
+        passiveButtonsLayout.setPadding(0, 5, 0, 5)
+
+        // Lay on Hands Button
+        val layOnHandsButton = Button(this)
+        layOnHandsButton.text = "🙏 Lay on Hands"
+        layOnHandsButton.textSize = 12f
+        layOnHandsButton.setBackgroundColor(Color.rgb(100, 150, 100))
+        layOnHandsButton.setOnClickListener {
+            useLayOnHands()
+        }
+        passiveButtonsLayout.addView(layOnHandsButton)
+
+        // Cleansing Touch Button
+        val cleansingTouchButton = Button(this)
+        cleansingTouchButton.text = "✋ Cleansing Touch"
+        cleansingTouchButton.textSize = 12f
+        cleansingTouchButton.setBackgroundColor(Color.rgb(150, 100, 150))
+        cleansingTouchButton.setOnClickListener {
+            useCleansingTouch()
+        }
+        passiveButtonsLayout.addView(cleansingTouchButton)
+
+        contentLayout.addView(passiveButtonsLayout)
+
         // Skill Buttons Container
         skillButtonsContainer = LinearLayout(this)
         skillButtonsContainer.orientation = LinearLayout.VERTICAL
@@ -557,6 +585,33 @@ Viel Erfolg! 🗡️
         val filled = (percent * length / 100).coerceIn(0, length)
         val empty = length - filled
         return "[" + "▓".repeat(filled) + "░".repeat(empty) + "]"
+    }
+
+    private fun useLayOnHands() {
+        val combat = GameState.getActiveCombat() ?: return
+        if (!combat.isPlayerTurn) return
+
+        val player = combat.playerParty.firstOrNull() ?: return
+        val remaining = player.loadout.layOnHandsPool - player.loadout.layOnHandsUsed
+
+        if (remaining <= 0) {
+            android.widget.Toast.makeText(this, "❌ Kein Lay on Hands mehr verfügbar!", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Use all remaining healing
+        if (GameState.useLayOnHands(remaining)) {
+            updateUI()
+        }
+    }
+
+    private fun useCleansingTouch() {
+        val combat = GameState.getActiveCombat() ?: return
+        if (!combat.isPlayerTurn) return
+
+        if (GameState.useCleansingTouch()) {
+            updateUI()
+        }
     }
 
     private fun showCombatResult() {
