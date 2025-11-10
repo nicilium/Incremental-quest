@@ -343,7 +343,7 @@ Patrick lehnt sich über die Theke und zeigt auf ein schwarzes Brett:
             val storyCombatButton = Button(this)
             storyCombatButton.text = """
 📖 STORY-KAMPF
-${if (!GameState.getActiveCombat()?.isTutorial?.let { it } == true && GameState.getCharacterStats()?.level == 1)
+${if (GameState.getActiveCombat()?.isTutorial != true && GameState.getCharacterStats()?.level == 1)
     "⚠️ TUTORIAL verfügbar!" else "Episches Abenteuer"}
             """.trimIndent()
             storyCombatButton.textSize = 14f
@@ -409,17 +409,34 @@ Zufallskampf für Belohnungen
             val loadoutButton = Button(this)
             loadoutButton.text = "⚡ Loadout konfigurieren"
             loadoutButton.textSize = 12f
-            loadoutButton.setBackgroundColor(Color.rgb(60, 60, 60))
-            loadoutButton.setTextColor(Color.YELLOW)
+            loadoutButton.setBackgroundColor(Color.rgb(100, 60, 150))
+            loadoutButton.setTextColor(Color.WHITE)
             loadoutButton.setPadding(10, 5, 10, 5)
             loadoutButton.setOnClickListener {
-                val alert = android.app.AlertDialog.Builder(this)
-                alert.setTitle("🚧 In Entwicklung")
-                alert.setMessage("Loadout-Konfiguration kommt im nächsten Update!\n\nFür jetzt: Standard-Loadout wird verwendet.")
-                alert.setPositiveButton("OK", null)
-                alert.show()
+                val intent = Intent(this, LoadoutActivity::class.java)
+                startActivity(intent)
             }
             card.addView(loadoutButton)
+
+            // Skill Tree Button
+            val skillTreeButton = Button(this)
+            val availablePoints = GameState.availableSkillPoints
+            val unlockedCount = GameState.getUnlockedSkills().size
+            skillTreeButton.text = if (availablePoints > 0) {
+                "🌳 SKILL-BAUM ($availablePoints Points verfügbar!)"
+            } else {
+                "🌳 Skill-Baum ($unlockedCount/100 Skills)"
+            }
+            skillTreeButton.textSize = 14f
+            skillTreeButton.setBackgroundColor(if (availablePoints > 0) Color.rgb(100, 200, 50) else Color.rgb(50, 100, 150))
+            skillTreeButton.setTextColor(Color.WHITE)
+            skillTreeButton.typeface = if (availablePoints > 0) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            skillTreeButton.setPadding(10, 10, 10, 10)
+            skillTreeButton.setOnClickListener {
+                val intent = Intent(this, SkillTreeActivity::class.java)
+                startActivity(intent)
+            }
+            card.addView(skillTreeButton)
         } else {
             // Paladin-Button (nur beim ersten Mal)
             val paladinButton = Button(this)
