@@ -191,6 +191,10 @@ object GameState {
     var offlineTimeCapLevel = 0
         private set
 
+    // ========== Lootbox System: Escalating Costs ==========
+    var lootboxesBoughtSinceAscension = 0
+        private set
+
     // ========== NEW: Click Combo System ==========
     private var currentCombo = 0
     private var lastClickTime = 0L
@@ -857,6 +861,9 @@ object GameState {
         // Reset DE and gold
         divineEssence = 0
         gold = 0
+
+        // Reset lootbox counter (fresh start for escalating costs)
+        lootboxesBoughtSinceAscension = 0
 
         // Keep everything else (permanent upgrades, IAPs, etc.)
         return true
@@ -1709,11 +1716,14 @@ object GameState {
 
     // ========== Lootbox System ==========
 
-    // Get lootbox cost (uses Gold now!)
-    fun getLootboxCost(): Int = 1000  // 1000 Gold per box
+    // Get lootbox cost - escalates with each purchase, resets on Ascension!
+    fun getLootboxCost(): Int {
+        // Base 500 DE × 1.3^boxes_bought
+        return (500 * (1.3).pow(lootboxesBoughtSinceAscension)).toInt()
+    }
 
     // Can afford lootbox?
-    fun canAffordLootbox(): Boolean = gold >= getLootboxCost()
+    fun canAffordLootbox(): Boolean = divineEssence >= getLootboxCost()
 
     // Buy lootbox - returns random equipment or null if can't afford
     fun buyLootbox(): Equipment? {
@@ -1723,7 +1733,9 @@ object GameState {
         val availableSets = playerClass.getAvailableSets()
         if (availableSets.isEmpty()) return null
 
-        gold -= getLootboxCost()  // Uses Gold now!
+        val cost = getLootboxCost()
+        divineEssence -= cost  // Uses Divine Essence with escalating costs!
+        lootboxesBoughtSinceAscension++  // Increment counter
 
         // Random slot
         val slot = EquipmentSlot.values().random()
@@ -2854,6 +2866,9 @@ object GameState {
         editor.putInt("offlineMultiplierLevel", offlineMultiplierLevel)
         editor.putInt("offlineTimeCapLevel", offlineTimeCapLevel)
 
+        // Lootbox escalating costs
+        editor.putInt("lootboxesBoughtSinceAscension", lootboxesBoughtSinceAscension)
+
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
     }
 
@@ -3351,6 +3366,9 @@ object GameState {
         autoUpgradeEnabled = prefs.getBoolean("autoUpgradeEnabled", false)
         offlineMultiplierLevel = prefs.getInt("offlineMultiplierLevel", 0)
         offlineTimeCapLevel = prefs.getInt("offlineTimeCapLevel", 0)
+
+        // Lootbox escalating costs
+        lootboxesBoughtSinceAscension = prefs.getInt("lootboxesBoughtSinceAscension", 0)
 
         // Reset passive points timer to prevent huge point gains on first load
         lastPassivePointsUpdate = System.currentTimeMillis()
