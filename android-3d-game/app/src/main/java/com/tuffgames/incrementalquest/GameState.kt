@@ -1213,6 +1213,7 @@ object GameState {
         val strMod = player.stats.getModifier(DndAttribute.STRENGTH)
         var baseDamage = equipStats.weaponDamage + strMod + (player.stats.level / 2)
 
+        // PALADIN PASSIVES
         // Apply Divine Smite (Level 2 Passive - Optional +2d8)
         if (player.loadout.divineSmiteActive) {
             val smiteDamage = PaladinPassive.DIVINE_SMITE.getScaledValue(player.stats.level)
@@ -1228,7 +1229,36 @@ object GameState {
             combat.addLog("⚡ Improved Divine Smite: +$holyDamage heiliger Schaden!")
         }
 
-        val damage = calculateDamage(baseDamage, target.enemy.armor)
+        // BARBAR PASSIVES
+        // Apply Rage Bonus (Lv2) - +Damage während Rage
+        if (player.loadout.rageActive && BarbarPassive.RAGE.isUnlockedAt(player.stats.level)) {
+            val rageBonus = (baseDamage * 0.25).toInt()  // +25% Damage während Rage
+            baseDamage += rageBonus
+            combat.addLog("💢 RAGE! +$rageBonus Bonus-Schaden!")
+        }
+
+        // Apply Reckless Attack Bonus (Lv5) - +30% Damage wenn aktiv
+        if (player.loadout.recklessAttackActive && BarbarPassive.RECKLESS_ATTACK.isUnlockedAt(player.stats.level)) {
+            val recklessBonus = (baseDamage * 0.30).toInt()
+            baseDamage += recklessBonus
+            combat.addLog("⚔️ Reckless Attack! +$recklessBonus Bonus-Schaden!")
+        }
+
+        // Check for Critical Hit (Brutal Critical support)
+        val critChance = equipStats.critChancePercent
+        val critRoll = (1..100).random()
+        val isCrit = critRoll <= critChance
+
+        var damage = if (isCrit) {
+            val critMultiplier = player.stats.getCriticalMultiplier()
+            val critDamage = baseDamage * critMultiplier
+            combat.addLog("💥 KRITISCHER TREFFER! ${critMultiplier}x Schaden!")
+            critDamage
+        } else {
+            baseDamage
+        }
+
+        damage = calculateDamage(damage, target.enemy.armor)
 
         target.enemy.takeDamage(damage)
         combat.addLog("${player.name} greift ${target.name} an und macht $damage Schaden!")
@@ -1354,6 +1384,225 @@ object GameState {
 
         advanceTurn(combat)
         return true
+    }
+
+    // ============================================================================
+    // BARBAR ABILITY EXECUTION
+    // ============================================================================
+
+    fun executePlayerBarbarAbility(ability: BarbarAbility, targetIndex: Int = 0): Boolean {
+        val combat = activeCombat ?: return false
+        if (!combat.isCurrentPlayerTurn()) return false
+
+        val player = combat.getCurrentParticipant() as? CombatParticipant.PlayerParticipant ?: return false
+
+        // Check cooldown
+        val cooldownRemaining = combat.abilityCooldowns[ability] ?: 0
+        if (cooldownRemaining > 0) {
+            combat.addLog("❌ ${ability.displayName} ist noch $cooldownRemaining Runden im Cooldown!")
+            return false
+        }
+
+        // Check if ability is unlocked
+        if (!ability.isUnlockedAt(player.stats.level)) {
+            combat.addLog("❌ ${ability.displayName} noch nicht freigeschaltet!")
+            return false
+        }
+
+        // Get targets (AOE or Single)
+        val targets = getBarbarAbilityTargets(ability, combat, targetIndex)
+        if (targets.isEmpty()) {
+            combat.addLog("❌ Kein gültiges Ziel!")
+            return false
+        }
+
+        // Log ability use
+        combat.addLog("${player.name} nutzt ${ability.displayName}!", true)
+
+        // Execute ability effects
+        executeBarbarAbilityEffects(ability, player, targets, combat)
+
+        // Set cooldown
+        combat.abilityCooldowns[ability] = ability.cooldown
+
+        advanceTurn(combat)
+        return true
+    }
+
+    private fun getBarbarAbilityTargets(ability: BarbarAbility, combat: CombatState, primaryTargetIndex: Int): List<CombatParticipant> {
+        return when(ability) {
+            // AOE Damage Skills
+            BarbarAbility.WUTSCHREI,
+            BarbarAbility.ERDERSCHUETTERUNG,
+            BarbarAbility.KETTENANGRIFF,
+            BarbarAbility.FURCHTEINFLOESSEND,
+            BarbarAbility.VERWUESTUNG,
+            BarbarAbility.WELTENRICHTER,
+            BarbarAbility.RAGNAROEK,
+            BarbarAbility.TITANENZORN,
+            BarbarAbility.APOKALYPSE,
+            BarbarAbility.GOETTERSCHLAECHTER -> {
+                combat.getAliveEnemies()
+            }
+
+            // Self Buffs
+            BarbarAbility.UNAUFHALTSAM,
+            BarbarAbility.ZORNESRAUSCH,
+            BarbarAbility.TITANISCHE_STAERKE,
+            BarbarAbility.UNVERWUNDBAR,
+            BarbarAbility.UNSTERBLICH,
+            BarbarAbility.TITANENBLUT,
+            BarbarAbility.BERSERKERINSTINKT,
+            BarbarAbility.TITANENFORM -> {
+                listOf(player)
+            }
+
+            // Single Target (default)
+            else -> {
+                val target = combat.enemyParty.getOrNull(primaryTargetIndex)
+                if (target != null && target.isAlive()) listOf(target) else emptyList()
+            }
+        }
+    }
+
+    private fun executeBarbarAbilityEffects(
+        ability: BarbarAbility,
+        player: CombatParticipant.PlayerParticipant,
+        targets: List<CombatParticipant>,
+        combat: CombatState
+    ) {
+        // Damage-based abilities
+        when {
+            ability.baseDamage > 0 -> {
+                val baseDamage = ability.getDamage(player.stats.level)
+                var finalDamage = baseDamage
+
+                // Apply Rage bonus
+                if (player.loadout.rageActive) {
+                    finalDamage = (finalDamage * 1.25).toInt()
+                }
+
+                // Apply Reckless Attack bonus
+                if (player.loadout.recklessAttackActive) {
+                    finalDamage = (finalDamage * 1.30).toInt()
+                }
+
+                // Apply Set Bonuses
+                val setBonuses = getActiveSetBonuses()
+                for (setBonus in setBonuses) {
+                    finalDamage = (finalDamage * (100 + setBonus.damageBonus)) / 100
+                }
+
+                targets.forEach { target ->
+                    if (target is CombatParticipant.EnemyParticipant) {
+                        val actualDamage = calculateDamage(finalDamage, target.enemy.armor)
+                        target.enemy.takeDamage(actualDamage)
+
+                        val targetName = if (targets.size > 1) "alle Gegner" else target.name
+                        combat.addLog("➤ $actualDamage Schaden an $targetName!")
+
+                        // Lifesteal from Blutdurst or Set Bonus
+                        if (ability == BarbarAbility.BLUTDURST || hasBarbarLifestealSet()) {
+                            val lifesteal = (actualDamage * 0.25).toInt()
+                            player.stats.heal(lifesteal)
+                            combat.addLog("🩸 ${player.name} heilt sich um $lifesteal HP (Lifesteal)!")
+                        }
+                    }
+                }
+
+                // Execute Mechanic (Todesstoß)
+                if (ability == BarbarAbility.TODESSTOSS) {
+                    targets.forEach { target ->
+                        if (target is CombatParticipant.EnemyParticipant) {
+                            val hpPercent = target.enemy.getHPPercent()
+                            if (hpPercent <= 20) {
+                                target.enemy.takeDamage(9999)
+                                combat.addLog("⚔️ EXECUTE! ${target.name} unter 20% HP sofort getötet!")
+                            }
+                        }
+                    }
+                }
+            }
+
+            ability.baseHealing > 0 -> {
+                val healing = ability.getHealing(player.stats.level)
+                targets.forEach { target ->
+                    if (target is CombatParticipant.PlayerParticipant) {
+                        target.stats.heal(healing)
+                        combat.addLog("➤ ${target.name} wird um $healing HP geheilt!")
+                    }
+                }
+            }
+        }
+
+        // Special Effects
+        applyBarbarAbilitySpecialEffects(ability, player, targets, combat)
+    }
+
+    private fun applyBarbarAbilitySpecialEffects(
+        ability: BarbarAbility,
+        player: CombatParticipant.PlayerParticipant,
+        targets: List<CombatParticipant>,
+        combat: CombatState
+    ) {
+        when(ability) {
+            // Auto-activate Rage
+            BarbarAbility.WUTSCHREI, BarbarAbility.ZORNESRAUSCH -> {
+                if (!player.loadout.rageActive) {
+                    player.loadout.rageActive = true
+                    player.loadout.rageRounds = 3
+                    combat.addLog("💢 Rage aktiviert! 3 Runden")
+                }
+            }
+
+            // Stun Effect
+            BarbarAbility.ERDERSCHUETTERUNG, BarbarAbility.RAGNAROEK -> {
+                targets.forEach { target ->
+                    if (target is CombatParticipant.EnemyParticipant) {
+                        combat.addStatusEffect(target, StatusEffect(StatusEffectType.STUNNED, ability.baseDuration))
+                    }
+                }
+            }
+
+            // Temp HP Shield
+            BarbarAbility.UNVERWUNDBAR -> {
+                val shieldAmount = ability.getHealing(player.stats.level)
+                player.stats.temporaryHP += shieldAmount
+                combat.addLog("🛡️ ${player.name} erhält $shieldAmount temporäre HP!")
+            }
+
+            // Immortality
+            BarbarAbility.UNSTERBLICH -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.IMMUNE, ability.baseDuration))
+                combat.addLog("✨ ${player.name} ist für ${ability.baseDuration} Runden unsterblich!")
+            }
+
+            // Transformation
+            BarbarAbility.TITANENFORM, BarbarAbility.GOETTERSCHLAECHTER -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.TRANSFORMATION, ability.baseDuration, 100))
+                combat.addLog("⚡ ${player.name} verwandelt sich! +100% Stats für ${ability.baseDuration} Runden!")
+            }
+
+            // Damage Buff
+            BarbarAbility.TITANISCHE_STAERKE -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.DIVINE_POWER, ability.baseDuration, 50))
+                combat.addLog("💪 +50% Schaden für ${ability.baseDuration} Runden!")
+            }
+
+            // Reflect Damage
+            BarbarAbility.RACHEGEIST -> {
+                combat.addStatusEffect(player, StatusEffect(StatusEffectType.REFLECT, ability.baseDuration, 100))
+                combat.addLog("🔄 Reflektiert 100% Schaden für ${ability.baseDuration} Runden!")
+            }
+
+            else -> {}
+        }
+    }
+
+    private fun hasBarbarLifestealSet(): Boolean {
+        val setCounts = getActiveSetCounts()
+        val set3Count = setCounts[EquipmentSet.BARBAR_SET3] ?: 0
+        return set3Count >= 2  // 2pc bonus aktiviert Lifesteal
     }
 
     // ============================================================================
