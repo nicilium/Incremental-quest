@@ -129,7 +129,13 @@ Wähle deine aktiven Fähigkeiten für den Kampf!
         passiveHeader.setPadding(0, 10, 0, 10)
         contentLayout.addView(passiveHeader)
 
-        val passiveList = PaladinPassive.values().filter { it.isUnlockedAt(stats.level) }
+        // Get passives based on player class
+        val passiveList: List<Any> = when(playerClass) {
+            PlayerClass.PALADIN -> PaladinPassive.values().filter { it.isUnlockedAt(stats.level) }
+            PlayerClass.BARBAR -> BarbarPassive.values().filter { it.isUnlockedAt(stats.level) }
+            else -> emptyList()
+        }
+
         if (passiveList.isEmpty()) {
             val noPassives = TextView(this)
             noPassives.text = "Keine Passives freigeschaltet"
@@ -140,7 +146,15 @@ Wähle deine aktiven Fähigkeiten für den Kampf!
         } else {
             for (passive in passiveList) {
                 val passiveText = TextView(this)
-                passiveText.text = "✅ Lv${passive.levelRequirement}: ${passive.displayName}"
+
+                // Handle different passive types
+                val (displayName, levelReq) = when(passive) {
+                    is PaladinPassive -> Pair(passive.displayName, passive.levelRequirement)
+                    is BarbarPassive -> Pair(passive.displayName, passive.levelRequirement)
+                    else -> Pair("Unknown", 0)
+                }
+
+                passiveText.text = "✅ Lv$levelReq: $displayName"
                 passiveText.textSize = 13f
                 passiveText.setTextColor(Color.rgb(150, 255, 150))
                 passiveText.setPadding(10, 8, 10, 8)
@@ -188,11 +202,17 @@ Wähle deine aktiven Fähigkeiten für den Kampf!
             loadout.normalAbilities.getOrNull(slotIndex)
         }
 
-        button.text = if (currentSkill != null) {
-            "${if (isUltimate) "💥" else "⚔️"} Slot ${slotIndex + 1}: ${currentSkill.displayName}"
+        val skillName = if (currentSkill != null) {
+            when(currentSkill) {
+                is PaladinAbility -> currentSkill.displayName
+                is BarbarAbility -> currentSkill.displayName
+                else -> "Unknown"
+            }
         } else {
-            "${if (isUltimate) "💥" else "⚔️"} Slot ${slotIndex + 1}: [Leer]"
+            "[Leer]"
         }
+
+        button.text = "${if (isUltimate) "💥" else "⚔️"} Slot ${slotIndex + 1}: $skillName"
 
         button.textSize = 14f
         button.setBackgroundColor(if (currentSkill != null) Color.rgb(50, 100, 150) else Color.rgb(60, 60, 70))
@@ -216,11 +236,23 @@ Wähle deine aktiven Fähigkeiten für den Kampf!
     private fun showSkillSelectionDialog(slotIndex: Int, isUltimate: Boolean, characterLevel: Int) {
         val playerClass = GameState.selectedClass ?: return
 
-        // Get available skills
-        val availableSkills = if (isUltimate) {
-            playerClass.getAvailableUltimates().filter { it.isUnlockedAt(characterLevel) }
-        } else {
-            playerClass.getAvailableAbilities().filter { it.isUnlockedAt(characterLevel) }
+        // Get available skills (filter based on player class)
+        val availableSkills: List<Any> = when(playerClass) {
+            PlayerClass.PALADIN -> {
+                if (isUltimate) {
+                    (playerClass.getAvailableUltimates() as List<PaladinAbility>).filter { it.isUnlockedAt(characterLevel) }
+                } else {
+                    (playerClass.getAvailableAbilities() as List<PaladinAbility>).filter { it.isUnlockedAt(characterLevel) }
+                }
+            }
+            PlayerClass.BARBAR -> {
+                if (isUltimate) {
+                    (playerClass.getAvailableUltimates() as List<BarbarAbility>).filter { it.isUnlockedAt(characterLevel) }
+                } else {
+                    (playerClass.getAvailableAbilities() as List<BarbarAbility>).filter { it.isUnlockedAt(characterLevel) }
+                }
+            }
+            else -> emptyList()
         }
 
         if (availableSkills.isEmpty()) {
@@ -228,7 +260,15 @@ Wähle deine aktiven Fähigkeiten für den Kampf!
             return
         }
 
-        val skillNames = availableSkills.map { it.displayName }.toTypedArray()
+        // Extract display names (works for both Paladin and Barbar)
+        val skillNames = availableSkills.map { ability ->
+            when(ability) {
+                is PaladinAbility -> ability.displayName
+                is BarbarAbility -> ability.displayName
+                else -> "Unknown"
+            }
+        }.toTypedArray()
+
         val builder = AlertDialog.Builder(this)
         builder.setTitle(if (isUltimate) "💥 Ultimate wählen" else "⚔️ Skill wählen (Slot ${slotIndex + 1})")
 
@@ -242,7 +282,13 @@ Wähle deine aktiven Fähigkeiten für den Kampf!
                 loadout.setNormalAbility(slotIndex, selectedSkill, characterLevel)
             }
 
-            showToast("✅ ${selectedSkill.displayName} ausgewählt!")
+            val skillName = when(selectedSkill) {
+                is PaladinAbility -> selectedSkill.displayName
+                is BarbarAbility -> selectedSkill.displayName
+                else -> "Unknown"
+            }
+
+            showToast("✅ $skillName ausgewählt!")
             refreshUI()
         }
 
@@ -261,13 +307,28 @@ Wähle deine aktiven Fähigkeiten für den Kampf!
         builder.show()
     }
 
-    private fun showPassiveDialog(passive: PaladinPassive, characterLevel: Int) {
+    private fun showPassiveDialog(passive: Any, characterLevel: Int) {
         val dialog = AlertDialog.Builder(this)
-        dialog.setTitle("✨ ${passive.displayName}")
-        dialog.setMessage("""
-Level ${passive.levelRequirement} Passive
 
-${passive.getScaledDescription(characterLevel)}
+        val (displayName, levelReq, scaledDescription) = when(passive) {
+            is PaladinPassive -> Triple(
+                passive.displayName,
+                passive.levelRequirement,
+                passive.getScaledDescription(characterLevel)
+            )
+            is BarbarPassive -> Triple(
+                passive.displayName,
+                passive.levelRequirement,
+                passive.getScaledDescription(characterLevel)
+            )
+            else -> Triple("Unknown", 0, "Unknown passive")
+        }
+
+        dialog.setTitle("✨ $displayName")
+        dialog.setMessage("""
+Level $levelReq Passive
+
+$scaledDescription
 
 Diese Fähigkeit ist automatisch aktiv!
         """.trimIndent())

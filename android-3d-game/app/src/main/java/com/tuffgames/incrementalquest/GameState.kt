@@ -1082,18 +1082,36 @@ object GameState {
         return characterLoadout.getMaxNormalSlots(level)
     }
 
-    // Get alle freigeschalteten Fähigkeiten
-    fun getUnlockedAbilities(): List<PaladinAbility> {
+    // Get alle freigeschalteten Fähigkeiten (generisch für alle Klassen)
+    fun getUnlockedAbilities(): List<Any> {
         val level = characterStats?.level ?: 1
         val playerClass = selectedClass ?: return emptyList()
-        return playerClass.getAvailableAbilities().filter { it.isUnlockedAt(level) }
+
+        return when(playerClass) {
+            PlayerClass.PALADIN -> {
+                (playerClass.getAvailableAbilities() as List<PaladinAbility>).filter { it.isUnlockedAt(level) }
+            }
+            PlayerClass.BARBAR -> {
+                (playerClass.getAvailableAbilities() as List<BarbarAbility>).filter { it.isUnlockedAt(level) }
+            }
+            else -> emptyList()
+        }
     }
 
-    // Get alle freigeschalteten Ultimates
-    fun getUnlockedUltimates(): List<PaladinAbility> {
+    // Get alle freigeschalteten Ultimates (generisch für alle Klassen)
+    fun getUnlockedUltimates(): List<Any> {
         val level = characterStats?.level ?: 1
         val playerClass = selectedClass ?: return emptyList()
-        return playerClass.getAvailableUltimates().filter { it.isUnlockedAt(level) }
+
+        return when(playerClass) {
+            PlayerClass.PALADIN -> {
+                (playerClass.getAvailableUltimates() as List<PaladinAbility>).filter { it.isUnlockedAt(level) }
+            }
+            PlayerClass.BARBAR -> {
+                (playerClass.getAvailableUltimates() as List<BarbarAbility>).filter { it.isUnlockedAt(level) }
+            }
+            else -> emptyList()
+        }
     }
 
     // ========== COMBAT SYSTEM ==========
@@ -1198,61 +1216,96 @@ object GameState {
     }
 
     // Execute player ability
-    fun executePlayerAbility(ability: PaladinAbility, targetIndex: Int = 0): Boolean {
+    fun executePlayerAbility(ability: Any, targetIndex: Int = 0): Boolean {
         val combat = activeCombat ?: return false
         if (!combat.isCurrentPlayerTurn()) return false
 
         val player = combat.getCurrentParticipant() as? CombatParticipant.PlayerParticipant ?: return false
 
+        // Get ability properties (works for both Paladin and Barbar)
+        val abilityProps = getAbilityProperties(ability) ?: return false
+
         // Check cooldown
         if (combat.abilityCooldowns.getOrDefault(ability, 0) > 0) {
-            combat.addLog("${ability.displayName} ist noch auf Cooldown!")
+            combat.addLog("${abilityProps.displayName} ist noch auf Cooldown!")
             return false
         }
 
         // Check mana cost for SPELL abilities
-        if (ability.type == AbilityType.SPELL) {
-            if (player.stats.currentMana < ability.cost) {
-                combat.addLog("Nicht genug Mana! Benötigt: ${ability.cost}, verfügbar: ${player.stats.currentMana}")
+        if (abilityProps.type == AbilityType.SPELL) {
+            if (player.stats.currentMana < abilityProps.cost) {
+                combat.addLog("Nicht genug Mana! Benötigt: ${abilityProps.cost}, verfügbar: ${player.stats.currentMana}")
                 return false
             }
-            player.stats.currentMana -= ability.cost
+            player.stats.currentMana -= abilityProps.cost
         }
 
         // Execute ability effect
         when {
-            ability.baseDamage > 0 -> {
+            abilityProps.baseDamage > 0 -> {
                 // Damage ability
                 val target = combat.enemyParty.getOrNull(targetIndex) ?: return false
                 if (!target.isAlive()) return false
 
                 val damage = calculateAbilityDamage(ability, player)
                 target.enemy.takeDamage(damage)
-                combat.addLog("${player.name} nutzt ${ability.displayName} gegen ${target.name} und macht $damage Schaden!")
+                combat.addLog("${player.name} nutzt ${abilityProps.displayName} gegen ${target.name} und macht $damage Schaden!")
 
                 if (target.enemy.isDead()) {
                     combat.addLog("${target.name} wurde besiegt!", true)
                 }
             }
-            ability.baseHealing > 0 -> {
+            abilityProps.baseHealing > 0 -> {
                 // Healing ability
                 val healing = calculateHealing(ability, player)
                 player.stats.heal(healing)
-                combat.addLog("${player.name} nutzt ${ability.displayName} und heilt sich um $healing HP!")
+                combat.addLog("${player.name} nutzt ${abilityProps.displayName} und heilt sich um $healing HP!")
             }
             else -> {
                 // Buff/Utility ability
-                combat.addLog("${player.name} nutzt ${ability.displayName}!")
+                combat.addLog("${player.name} nutzt ${abilityProps.displayName}!")
             }
         }
 
         // Set cooldown for COMBAT abilities
-        if (ability.type == AbilityType.COMBAT) {
-            combat.abilityCooldowns[ability] = ability.cost
+        if (abilityProps.type == AbilityType.COMBAT) {
+            combat.abilityCooldowns[ability] = abilityProps.cost
         }
 
         advanceTurn(combat)
         return true
+    }
+
+    // Helper: Get ability properties for any ability type
+    private data class AbilityProperties(
+        val displayName: String,
+        val type: AbilityType,
+        val cost: Int,
+        val baseDamage: Int,
+        val baseHealing: Int,
+        val baseDuration: Int
+    )
+
+    private fun getAbilityProperties(ability: Any): AbilityProperties? {
+        return when(ability) {
+            is PaladinAbility -> AbilityProperties(
+                ability.displayName,
+                ability.type,
+                ability.cost,
+                ability.baseDamage,
+                ability.baseHealing,
+                ability.baseDuration
+            )
+            is BarbarAbility -> AbilityProperties(
+                ability.displayName,
+                ability.type,
+                ability.cost,
+                ability.baseDamage,
+                ability.baseHealing,
+                ability.baseDuration
+            )
+            else -> null
+        }
     }
 
     // Calculate damage with AC reduction
@@ -1262,18 +1315,30 @@ object GameState {
         return (baseDamage - reduction).coerceAtLeast(1)
     }
 
-    // Calculate ability damage
-    private fun calculateAbilityDamage(ability: PaladinAbility, player: CombatParticipant.PlayerParticipant): Int {
+    // Calculate ability damage (works for all ability types)
+    private fun calculateAbilityDamage(ability: Any, player: CombatParticipant.PlayerParticipant): Int {
         val equipStats = getTotalEquipmentStats()
-        val baseDamage = ability.getDamage(player.stats.level)
+
+        val baseDamage = when(ability) {
+            is PaladinAbility -> ability.getDamage(player.stats.level)
+            is BarbarAbility -> ability.getDamage(player.stats.level)
+            else -> 0
+        }
+
         val weaponBonus = equipStats.weaponDamage / 2
         return baseDamage + weaponBonus
     }
 
-    // Calculate healing
-    private fun calculateHealing(ability: PaladinAbility, player: CombatParticipant.PlayerParticipant): Int {
+    // Calculate healing (works for all ability types)
+    private fun calculateHealing(ability: Any, player: CombatParticipant.PlayerParticipant): Int {
         val equipStats = getTotalEquipmentStats()
-        val baseHealing = ability.getHealing(player.stats.level)
+
+        val baseHealing = when(ability) {
+            is PaladinAbility -> ability.getHealing(player.stats.level)
+            is BarbarAbility -> ability.getHealing(player.stats.level)
+            else -> 0
+        }
+
         val healingBonus = (baseHealing * equipStats.healingPowerPercent) / 100
         return baseHealing + healingBonus
     }
@@ -2226,9 +2291,21 @@ object GameState {
 
         // RPG System - Loadout (5 normale + 1 ultimate)
         for (i in 0 until 5) {
-            editor.putString("loadout_normal_$i", characterLoadout.getNormalAbility(i)?.name)
+            val ability = characterLoadout.getNormalAbility(i)
+            val abilityName = when(ability) {
+                is PaladinAbility -> ability.name
+                is BarbarAbility -> ability.name
+                else -> null
+            }
+            editor.putString("loadout_normal_$i", abilityName)
         }
-        editor.putString("loadout_ultimate", characterLoadout.ultimateAbility?.name)
+        val ultimateAbility = characterLoadout.ultimateAbility
+        val ultimateName = when(ultimateAbility) {
+            is PaladinAbility -> ultimateAbility.name
+            is BarbarAbility -> ultimateAbility.name
+            else -> null
+        }
+        editor.putString("loadout_ultimate", ultimateName)
 
         editor.commit()  // Synchrones Speichern statt apply() für sofortige Persistenz
     }
@@ -2496,18 +2573,36 @@ object GameState {
             }
         }
 
-        // RPG System - Loadout (5 normale + 1 ultimate)
-        val normalAbilities = mutableListOf<PaladinAbility?>(null, null, null, null, null)
+        // RPG System - Loadout (5 normale + 1 ultimate) - changed to Any? to support all classes
+        val normalAbilities = mutableListOf<Any?>(null, null, null, null, null)
         for (i in 0 until 5) {
             val abilityName = prefs.getString("loadout_normal_$i", null)
             normalAbilities[i] = abilityName?.let {
-                try { PaladinAbility.valueOf(it) } catch (e: IllegalArgumentException) { null }
+                // Try both Paladin and Barbar
+                try {
+                    PaladinAbility.valueOf(it)
+                } catch (e: IllegalArgumentException) {
+                    try {
+                        BarbarAbility.valueOf(it)
+                    } catch (e2: IllegalArgumentException) {
+                        null
+                    }
+                }
             }
         }
 
         val ultimateName = prefs.getString("loadout_ultimate", null)
-        val ultimateAbility = ultimateName?.let {
-            try { PaladinAbility.valueOf(it) } catch (e: IllegalArgumentException) { null }
+        val ultimateAbility: Any? = ultimateName?.let {
+            // Try both Paladin and Barbar
+            try {
+                PaladinAbility.valueOf(it)
+            } catch (e: IllegalArgumentException) {
+                try {
+                    BarbarAbility.valueOf(it)
+                } catch (e2: IllegalArgumentException) {
+                    null
+                }
+            }
         }
 
         characterLoadout = CharacterLoadout(
@@ -3209,6 +3304,296 @@ enum class PaladinPassive(
     }
 }
 
+// ============================================================================
+// BARBAR ABILITY SYSTEM
+// ============================================================================
+
+enum class BarbarAbility(
+    val displayName: String,
+    val description: String,
+    val type: AbilityType,
+    val category: AbilityCategory,
+    val levelRequirement: Int,
+    val cost: Int,  // Cooldown in Runden (nur COMBAT, kein Mana!)
+    val baseDamage: Int = 0,
+    val baseHealing: Int = 0,
+    val baseDuration: Int = 0
+) {
+    // START-SKILLS (Level 1) - 3 Stück
+    BRUTALER_HIEB("Brutaler Hieb", "Schwerer Schlag mit roher Kraft",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 1, 2, baseDamage = 30),
+
+    WUTSCHREI("Wutschrei", "Brüllt vor Wut, erhöht Schaden um 25% für 2 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 1, 3, baseDuration = 2),
+
+    EISENHAUT("Eisenhaut", "Reduziert eingehenden Schaden um 40%",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 1, 4, baseDuration = 2),
+
+    // Level 3
+    BLUTRAUSCH("Blutrausch", "Macht mehr Schaden je niedriger deine HP (+50% bei <50% HP)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 3, 3, baseDamage = 35),
+
+    // Level 5
+    ZERTRUEMMERN("Zertrümmern", "Zerschmettert Rüstung des Gegners (-30% AC für 3 Runden)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 5, 3, baseDamage = 40, baseDuration = 3),
+
+    // Level 7
+    WIRBELSTURM("Wirbelsturm", "Rotiert und trifft alle Gegner im Umkreis",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 7, 4, baseDamage = 35),
+
+    // Level 10
+    ERSCHUETTERNDER_SCHLAG("Erschütternder Schlag", "Betäubt Gegner für 1 Runde",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 10, 4, baseDamage = 45, baseDuration = 1),
+
+    // Level 12
+    UNBAENDIGE_WUT("Unbändige Wut", "Immunität gegen Betäubung, Angst, Charm für 3 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 12, 5, baseDuration = 3),
+
+    // Level 15
+    KETTENSCHLAG("Kettenschlag", "3-fach Kombo-Angriff",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 15, 4, baseDamage = 25),
+
+    // Level 18
+    KRIEGSSCHREI("Kriegsschrei", "Verängstigt alle Gegner (-20% Schaden für 2 Runden)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 18, 4, baseDuration = 2),
+
+    // Level 22
+    BERSERKERWUT("Berserkerwut", "+60% Schaden, -20% Verteidigung für 3 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 22, 5, baseDuration = 3),
+
+    // Level 25
+    KNOCHENSCHLAG("Knochenschlag", "Bricht Knochen, reduziert Gegner-Schaden um 40%",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 25, 3, baseDamage = 50, baseDuration = 2),
+
+    // Level 28
+    TODESVERACHTUNG("Todesverachtung", "Überlebt tödlichen Schlag mit 1 HP (1x pro Kampf)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 28, 6, baseDuration = 1),
+
+    // Level 32
+    BLUTENDE_WUNDEN("Blutende Wunden", "Verursacht Blutung (15 Schaden pro Runde für 3 Runden)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 32, 3, baseDamage = 40, baseDuration = 3),
+
+    // Level 35
+    TOBENDE_RASEREI("Tobende Raserei", "Greift 2x pro Runde an für 3 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 35, 5, baseDuration = 3),
+
+    // Level 40
+    SCHAEDELBRECHER("Schädelbrecher", "Exekutiert Gegner unter 25% HP sofort",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 40, 4, baseDamage = 80),
+
+    // Level 45
+    TITANENGRIFF("Titanengriff", "Packt und zerquetscht Gegner, 2 Runden betäubt",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 45, 5, baseDamage = 70, baseDuration = 2),
+
+    // Level 50
+    FLEISCHWOLF("Fleischwolf", "Brutaler AOE Cleave-Angriff, alle Gegner nehmen massiven Schaden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 50, 5, baseDamage = 90),
+
+    // Level 55
+    SCHMERZRESISTENZ("Schmerzresistenz", "Reduziert allen Schaden um 60% für 2 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 55, 5, baseDuration = 2),
+
+    // Level 60
+    RACHESCHLAG("Racheschlag", "Kontert nächsten Angriff mit 250% des Schadens",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 60, 4, baseDamage = 0),
+
+    // Level 65
+    BLUTOPFER("Blutopfer", "Opfert 30% eigene HP für 200% Schaden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 65, 4, baseDamage = 120),
+
+    // Level 70
+    WUETENDE_REGENERATION("Wüten de Regeneration", "Heilt 50% des verursachten Schadens für 3 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 70, 5, baseDuration = 3),
+
+    // Level 75
+    KRIEGSGOTT("Kriegsgott", "Wird zur Kriegsinkarnation: +75% Schaden, +50% HP für 4 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 75, 6, baseDuration = 4),
+
+    // Level 80
+    AXTMEISTER("Axtmeister", "+40% Critical Strike Chance für 3 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 80, 4, baseDuration = 3),
+
+    // Level 85
+    UNSTERBLICHER_ZORN("Unsterblicher Zorn", "Kann nicht sterben für 3 Runden (Min. 1 HP)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 85, 6, baseDuration = 3),
+
+    // Level 90
+    SCHLACHTFELD_DOMINANZ("Schlachtfeld-Dominanz", "AOE Angst + 80 Schaden an alle Gegner",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 90, 5, baseDamage = 80, baseDuration = 2),
+
+    // Level 95
+    BLUTIGER_ANSTURM("Blutiger Ansturm", "Charge-Angriff mit Blutung (20 DPS für 4 Runden)",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 95, 4, baseDamage = 100, baseDuration = 4),
+
+    // Level 100 (Capstone)
+    EWIGER_KRIEGER("Ewiger Krieger", "Unsterblicher Kriegsgott-Modus für 6 Runden",
+        AbilityType.COMBAT, AbilityCategory.NORMAL, 100, 7, baseDuration = 6),
+
+    // ========== ULTIMATES ==========
+
+    // Level 10 - Erste Ulti
+    URSCHREI("Urschrei der Barbaren", "Massiver AOE-Schrei betäubt ALLE Gegner für 2 Runden",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 10, 1, baseDamage = 60, baseDuration = 2),
+
+    // Level 20 - Zweite Ulti
+    BERSERKER_MODUS("Berserker-Modus", "+100% Schaden, +50% Angriffsgeschwindigkeit, Immune zu CC",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 20, 1, baseDuration = 4),
+
+    // Level 30 - Dritte Ulti
+    GOETTER_WUT("Götterwut", "Immune zu Schaden + 150% Damage für 3 Runden",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 30, 1, baseDamage = 100, baseDuration = 3),
+
+    // Level 50 - Vierte Ulti
+    WELTENZERSTOERER("Weltenzerstörer", "Apokalyptischer AOE-Angriff (200 Schaden an alle)",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 50, 1, baseDamage = 200),
+
+    // Level 75 - Fünfte Ulti
+    BLUTMOND_RASEREI("Blutmond-Raserei", "Tötet alle Gegner unter 40% HP + heilt für jeden Kill (100 HP)",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 75, 1, baseDamage = 250, baseHealing = 100),
+
+    // Level 100 - Ultimate Capstone
+    AVATAR_DES_KRIEGES("Avatar des Krieges", "Wird zum unsterblichen Kriegsgott - kann nicht sterben, 300% Schaden für 10 Runden",
+        AbilityType.COMBAT, AbilityCategory.ULTIMATE, 100, 1, baseDuration = 10);
+
+    fun isNormal(): Boolean = category == AbilityCategory.NORMAL
+    fun isUltimate(): Boolean = category == AbilityCategory.ULTIMATE
+
+    // Berechne skalierten Schaden basierend auf Character Level
+    fun getDamage(characterLevel: Int): Int {
+        if (baseDamage == 0) return 0
+        // Barbar macht mehr Schaden als Paladin! Formel: Base + (Level × 3.0)
+        return (baseDamage + (characterLevel * 3.0)).toInt()
+    }
+
+    // Berechne skalierte Heilung basierend auf Character Level
+    fun getHealing(characterLevel: Int): Int {
+        if (baseHealing == 0) return 0
+        // Formel: Base + (Level × 1.5) - Barbar heilt weniger als Paladin
+        return (baseHealing + (characterLevel * 1.5)).toInt()
+    }
+
+    // Berechne skalierte Duration basierend auf Character Level
+    fun getDuration(characterLevel: Int): Int {
+        if (baseDuration == 0) return 0
+        // Formel: Base + (Level / 5) - alle 5 Level +1 Runde
+        return baseDuration + (characterLevel / 5)
+    }
+
+    // Berechne Buff-Percentage (für Wutschrei, Blutrausch etc.)
+    fun getBuffPercentage(characterLevel: Int): Int {
+        return when(this) {
+            WUTSCHREI -> 25 + characterLevel  // 25% + 1% pro Level
+            EISENHAUT -> 40 + (characterLevel / 2)  // 40% + 0.5% pro Level
+            BLUTRAUSCH -> 50 + characterLevel  // 50% bei low HP + 1% pro Level
+            BERSERKERWUT -> 60 + (characterLevel * 2)  // 60% + 2% pro Level
+            RACHESCHLAG -> 250 + (characterLevel * 2)  // 250% + 2% pro Level
+            BERSERKER_MODUS -> 100 + (characterLevel * 2)  // 100% + 2% pro Level (Ultimate!)
+            else -> 0
+        }
+    }
+
+    // Check ob Skill bei diesem Level freigeschaltet ist
+    fun isUnlockedAt(characterLevel: Int): Boolean {
+        return characterLevel >= levelRequirement
+    }
+}
+
+// ============================================================================
+// BARBAR PASSIVE ABILITIES
+// ============================================================================
+
+enum class BarbarPassive(
+    val displayName: String,
+    val description: String,
+    val levelRequirement: Int
+) {
+    // Level 2 - Rage (Kernmechanik!)
+    RAGE(
+        "Rage (Wut)",
+        "Kann in Wut verfallen: +2 Schaden pro Nahkampf-Angriff, Resistenz gegen physischen Schaden",
+        2
+    ),
+
+    // Level 5 - Fast Movement
+    FAST_MOVEMENT(
+        "Schnelle Bewegung",
+        "Bewegungsgeschwindigkeit +10ft (ohne Rüstung)",
+        5
+    ),
+
+    // Level 7 - Feral Instinct
+    FERAL_INSTINCT(
+        "Wilde Instinkte",
+        "+5 auf Initiative, kann nicht überrascht werden",
+        7
+    ),
+
+    // Level 9 - Brutal Critical
+    BRUTAL_CRITICAL(
+        "Brutaler Kritischer Treffer",
+        "Kritische Treffer machen +1 zusätzlichen Würfel Schaden",
+        9
+    ),
+
+    // Level 11 - Relentless Rage
+    RELENTLESS_RAGE(
+        "Unerbittliche Wut",
+        "Kann bei 0 HP weiterkämpfen (DC 10 CON Save). DC +5 bei jedem weiteren Mal",
+        11
+    ),
+
+    // Level 15 - Persistent Rage
+    PERSISTENT_RAGE(
+        "Anhaltende Wut",
+        "Wut endet nicht vorzeitig außer du wirst bewusstlos oder entscheidest dich dazu",
+        15
+    ),
+
+    // Level 18 - Indomitable Might
+    INDOMITABLE_MIGHT(
+        "Unbezwingbare Macht",
+        "STR-Checks unter deinem STR-Score werden automatisch auf STR-Score gesetzt",
+        18
+    ),
+
+    // Level 20 - Primal Champion
+    PRIMAL_CHAMPION(
+        "Urtümlicher Champion",
+        "+4 auf STR und CON (Max 24 statt 20!)",
+        20
+    );
+
+    fun isUnlockedAt(characterLevel: Int): Boolean {
+        return characterLevel >= levelRequirement
+    }
+
+    fun getScaledValue(characterLevel: Int): Int {
+        return when(this) {
+            RAGE -> 2 + (characterLevel / 5)  // +2 Schaden, +1 alle 5 Level
+            FAST_MOVEMENT -> 10 + (characterLevel / 10)  // +10ft, +1ft alle 10 Level
+            FERAL_INSTINCT -> 5 + (characterLevel / 10)  // +5 Initiative
+            BRUTAL_CRITICAL -> 1 + (characterLevel / 13)  // +1 Würfel, +1 auf Lv13, 17, etc.
+            RELENTLESS_RAGE -> 10 + ((characterLevel - 11) * 5)  // DC starts at 10
+            PERSISTENT_RAGE -> 1  // Boolean passive
+            INDOMITABLE_MIGHT -> characterLevel  // Minimum equals STR score
+            PRIMAL_CHAMPION -> 4  // +4 STR/CON
+        }
+    }
+
+    fun getScaledDescription(characterLevel: Int): String {
+        return when(this) {
+            RAGE -> "$description [+${getScaledValue(characterLevel)} Schaden, 50% Resistenz]"
+            FAST_MOVEMENT -> "$description [+${getScaledValue(characterLevel)}ft Bewegung]"
+            FERAL_INSTINCT -> "$description [+${getScaledValue(characterLevel)} Initiative]"
+            BRUTAL_CRITICAL -> "$description [+${getScaledValue(characterLevel)} Würfel bei Crit]"
+            RELENTLESS_RAGE -> "$description [DC ${getScaledValue(characterLevel)} CON Save]"
+            PERSISTENT_RAGE -> description
+            INDOMITABLE_MIGHT -> "$description [Min. STR: ${getScaledValue(characterLevel)}]"
+            PRIMAL_CHAMPION -> "$description [STR/CON Max: 24]"
+        }
+    }
+}
+
 // ==================== D&D 5E SYSTEM ====================
 
 // D&D Attributes
@@ -3378,15 +3763,17 @@ enum class PlayerClass(
         else -> emptyList() // Andere Klassen haben noch keine Sets
     }
 
-    // Gibt die verfügbaren normalen Fähigkeiten zurück
-    fun getAvailableAbilities(): List<PaladinAbility> = when(this) {
+    // Gibt die verfügbaren normalen Fähigkeiten zurück (generisch für alle Klassen)
+    fun getAvailableAbilities(): List<Any> = when(this) {
         PALADIN -> PaladinAbility.values().filter { it.isNormal() }
+        BARBAR -> BarbarAbility.values().filter { it.isNormal() }
         else -> emptyList()
     }
 
-    // Gibt die verfügbaren Ultimates zurück
-    fun getAvailableUltimates(): List<PaladinAbility> = when(this) {
+    // Gibt die verfügbaren Ultimates zurück (generisch für alle Klassen)
+    fun getAvailableUltimates(): List<Any> = when(this) {
         PALADIN -> PaladinAbility.values().filter { it.isUltimate() }
+        BARBAR -> BarbarAbility.values().filter { it.isUltimate() }
         else -> emptyList()
     }
 
@@ -3572,8 +3959,8 @@ data class CharacterStats(
 
 // Character Loadout (vor Abenteuer gewählt, skaliert mit Level)
 data class CharacterLoadout(
-    val normalAbilities: MutableList<PaladinAbility?> = mutableListOf(null, null, null, null, null),  // Max 5
-    var ultimateAbility: PaladinAbility? = null,
+    val normalAbilities: MutableList<Any?> = mutableListOf(null, null, null, null, null),  // Max 5, changed to Any for all class support
+    var ultimateAbility: Any? = null,  // Changed to Any for all class support
     var layOnHandsPool: Int = 0,  // Heilungs-Pool (Level × 5)
     var layOnHandsUsed: Int = 0,  // Wie viel bereits genutzt
     var cleansingTouchUsed: Int = 0  // Wie oft Cleansing Touch genutzt (resets täglich)
@@ -3590,9 +3977,18 @@ data class CharacterLoadout(
     fun hasUltimateSlot(characterLevel: Int): Boolean = characterLevel >= 10
 
     // Setze normale Fähigkeit an Index
-    fun setNormalAbility(index: Int, ability: PaladinAbility?, characterLevel: Int): Boolean {
+    fun setNormalAbility(index: Int, ability: Any?, characterLevel: Int): Boolean {
         if (index >= getMaxNormalSlots(characterLevel)) return false
-        if (ability != null && !ability.isNormal()) return false
+
+        // Check if ability is normal (works for both Paladin and Barbar)
+        if (ability != null) {
+            val isNormal = when(ability) {
+                is PaladinAbility -> ability.isNormal()
+                is BarbarAbility -> ability.isNormal()
+                else -> false
+            }
+            if (!isNormal) return false
+        }
 
         // Check for duplicates
         if (ability != null && normalAbilities.contains(ability)) return false
@@ -3602,10 +3998,10 @@ data class CharacterLoadout(
     }
 
     // Get normale Fähigkeit an Index
-    fun getNormalAbility(index: Int): PaladinAbility? = normalAbilities.getOrNull(index)
+    fun getNormalAbility(index: Int): Any? = normalAbilities.getOrNull(index)
 
     // Get alle ausgerüsteten normalen Fähigkeiten
-    fun getEquippedNormalAbilities(): List<PaladinAbility> {
+    fun getEquippedNormalAbilities(): List<Any> {
         return normalAbilities.filterNotNull()
     }
 
@@ -3836,7 +4232,7 @@ data class CombatState(
     var turnOrder: List<CombatParticipant> = emptyList(),
     var currentTurnIndex: Int = 0,
     val combatLog: MutableList<CombatLogEntry> = mutableListOf(),
-    val abilityCooldowns: MutableMap<PaladinAbility, Int> = mutableMapOf(),
+    val abilityCooldowns: MutableMap<Any, Int> = mutableMapOf(),  // Changed to Any to support all ability types
     var isPlayerTurn: Boolean = false,
     var combatEnded: Boolean = false,
     var combatResult: CombatResult? = null,

@@ -305,7 +305,7 @@ Viel Erfolg! 🗡️
         }
     }
 
-    private fun executeAbility(ability: PaladinAbility) {
+    private fun executeAbility(ability: Any) {
         val combat = GameState.getActiveCombat() ?: return
         if (!combat.isPlayerTurn) return
 
@@ -413,7 +413,12 @@ Viel Erfolg! 🗡️
         if (activeCooldowns.isNotEmpty()) {
             effects.add("⏳ COOLDOWNS:")
             activeCooldowns.forEach { (ability, rounds) ->
-                effects.add("  ${ability.displayName}: ${rounds}R")
+                val abilityName = when(ability) {
+                    is PaladinAbility -> ability.displayName
+                    is BarbarAbility -> ability.displayName
+                    else -> "Unknown"
+                }
+                effects.add("  $abilityName: ${rounds}R")
             }
         }
 
@@ -493,19 +498,39 @@ Viel Erfolg! 🗡️
         }
     }
 
-    private fun addSkillButton(ability: PaladinAbility, combat: CombatState, isPlayerTurn: Boolean) {
+    private fun addSkillButton(ability: Any, combat: CombatState, isPlayerTurn: Boolean) {
         val player = combat.playerParty.firstOrNull() ?: return
 
         val button = Button(this)
 
-        // Get ability info
-        val damage = ability.getDamage(player.stats.level)
-        val healing = ability.getHealing(player.stats.level)
+        // Get ability info (works for both Paladin and Barbar)
+        val (damage, healing, displayName, type, cost) = when(ability) {
+            is PaladinAbility -> {
+                Tuple5(
+                    ability.getDamage(player.stats.level),
+                    ability.getHealing(player.stats.level),
+                    ability.displayName,
+                    ability.type,
+                    ability.cost
+                )
+            }
+            is BarbarAbility -> {
+                Tuple5(
+                    ability.getDamage(player.stats.level),
+                    ability.getHealing(player.stats.level),
+                    ability.displayName,
+                    ability.type,
+                    ability.cost
+                )
+            }
+            else -> return
+        }
+
         val cooldown = combat.abilityCooldowns[ability] ?: 0
 
         // Build button text
-        val typeIcon = if (ability.type == AbilityType.COMBAT) "⚡" else "💙"
-        val costText = if (ability.type == AbilityType.COMBAT) "CD:${ability.cost}" else "${ability.cost} Mana"
+        val typeIcon = if (type == AbilityType.COMBAT) "⚡" else "💙"
+        val costText = if (type == AbilityType.COMBAT) "CD:$cost" else "$cost Mana"
 
         val effectText = when {
             damage > 0 -> "$damage DMG"
@@ -513,13 +538,13 @@ Viel Erfolg! 🗡️
             else -> "Buff"
         }
 
-        button.text = "$typeIcon ${ability.displayName}\n$costText | $effectText"
+        button.text = "$typeIcon $displayName\n$costText | $effectText"
 
         // Check if ability can be used
         val canUse = when {
             !isPlayerTurn -> false
             cooldown > 0 -> false
-            ability.type == AbilityType.SPELL && player.stats.currentMana < ability.cost -> false
+            type == AbilityType.SPELL && player.stats.currentMana < cost -> false
             else -> true
         }
 
@@ -535,6 +560,9 @@ Viel Erfolg! 🗡️
 
         skillButtonsContainer.addView(button)
     }
+
+    // Helper data class for ability properties
+    private data class Tuple5<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 
     private fun updateCombatLog(combat: CombatState) {
         val logText = combat.combatLog
